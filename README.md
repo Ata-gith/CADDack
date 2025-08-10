@@ -17,10 +17,7 @@ Welcome to **caddack**, a comprehensive repository dedicated to tools, scripts, 
 - **Graph Neural Networks (GNNs)**  
   Implementations and examples using DGL-LifeSci and PyTorch for GNN-based molecular property prediction.
 
-- **Data Integration**  
-  Scripts to query and extract bioactivity data from public databases like ChEMBL.
-
-- **Visualization & Analysis**  
+- **Analysis**  
   Utilities for interaction analysis (e.g., hydrogen bonds, binding site metrics) and result visualization.
 
 ---
