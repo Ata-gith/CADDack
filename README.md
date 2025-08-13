@@ -39,17 +39,23 @@ This approach blends **computational drug design (CADD)** techniques with **mach
 
 ## References
 
-Gómez-Bombarelli, R., Wei, J. N., Duvenaud, D., Hernández-Lobato, J. M., Sánchez-Lengeling, B., Sheberla, D., Aguilera-Iparraguirre, J., Hirzel, T. D., Adams, R. P., & Aspuru-Guzik, A. (2018). Automatic chemical design using a data-driven continuous representation of molecules. *Science, 361*(6400), 360–365. https://doi.org/10.1126/science.aat2663
+Automatic chemical design using a data-driven continuous representation of molecules. 
+https://pubs.acs.org/doi/10.1021/acscentsci.7b00572
 
-Walters, W. P., Murcko, M., & Koes, D. R. (2020). Deep generative molecular design reshapes drug discovery. *Drug Discovery Today, 25*(10), 1702–1711. https://doi.org/10.1016/j.drudis.2020.07.009 (Free full text: https://pmc.ncbi.nlm.nih.gov/articles/PMC9797947/)
+Deep generative molecular design reshapes drug discovery. 
+https://pmc.ncbi.nlm.nih.gov/articles/PMC9797947/
 
-Sánchez-Lengeling, B., & Aspuru-Guzik, A. (2018). Inverse molecular design using machine learning: Generative models for matter engineering. *Wiley Interdisciplinary Reviews: Computational Molecular Science, 8*(5), e1608. https://doi.org/10.1002/wcms.1608
+Inverse molecular design using machine learning: Generative models for matter engineering. 
+https://www.science.org/doi/10.1126/science.aat2663
 
-Kang, S., & Cho, K. (2018). Conditional molecular design with deep generative models. *arXiv preprint*. https://arxiv.org/abs/1805.00108
+Conditional molecular design with deep generative models. 
+https://pubs.acs.org/doi/10.1021/acs.jcim.8b00263
 
-Gao, W., Nguyen, T., & Coley, C. W. (2024). Graph diffusion transformers for multi-conditional molecular generation. *arXiv preprint*. https://arxiv.org/abs/2401.13858
+Graph diffusion transformers for multi-conditional molecular generation.
+https://arxiv.org/abs/2401.13858
 
-Polishchuk, P., Madzhidov, T., Nugmanov, R., & Bodrov, A. (2022). Inverse QSAR: Reversing descriptor-driven prediction pipeline using attention-based conditional variational autoencoder (ACoVAE). *ChemRxiv*. https://doi.org/10.26434/chemrxiv-2022-09z88
+Inverse QSAR: Reversing descriptor-driven prediction pipeline using attention-based conditional variational autoencoder (ACoVAE).
+https://pubmed.ncbi.nlm.nih.gov/36332178
 
 ---
 
