@@ -39,22 +39,22 @@ This approach blends **computational drug design (CADD)** techniques with **mach
 
 ## References
 
-Automatic chemical design using a data-driven continuous representation of molecules. 
+1. Automatic chemical design using a data-driven continuous representation of molecules. 
 https://pubs.acs.org/doi/10.1021/acscentsci.7b00572
 
-Deep generative molecular design reshapes drug discovery. 
+2. Deep generative molecular design reshapes drug discovery. 
 https://pmc.ncbi.nlm.nih.gov/articles/PMC9797947/
 
-Inverse molecular design using machine learning: Generative models for matter engineering. 
+3. Inverse molecular design using machine learning: Generative models for matter engineering. 
 https://www.science.org/doi/10.1126/science.aat2663
 
-Conditional molecular design with deep generative models. 
+4. Conditional molecular design with deep generative models. 
 https://pubs.acs.org/doi/10.1021/acs.jcim.8b00263
 
-Graph diffusion transformers for multi-conditional molecular generation.
+5. Graph diffusion transformers for multi-conditional molecular generation.
 https://arxiv.org/abs/2401.13858
 
-Inverse QSAR: Reversing descriptor-driven prediction pipeline using attention-based conditional variational autoencoder (ACoVAE).
+6. Inverse QSAR: Reversing descriptor-driven prediction pipeline using attention-based conditional variational autoencoder (ACoVAE).
 https://pubmed.ncbi.nlm.nih.gov/36332178
 
 ---
