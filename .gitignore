@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+.envrc
+
+# Data & notebooks
+data/processed/
+*.ipynb_checkpoints
+
+# Build
+dist/
+build/
