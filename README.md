@@ -16,20 +16,20 @@ Modular, scriptable toolkit for end-to-end computer-aided drug design (CADD). Fo
 
 ## Repository layout
 
-CADDack/
-configs/ # YAML configs for runs
-data/ # raw/processed data (gitignored except keepers)
-docs/ # notes, design docs
-examples/ # tiny runnable examples
-notebooks/ # analysis notebooks
-scripts/ # CLI entrypoints that call into src/caddack/*
-src/caddack/ # package code (data, qsar, gnn, design, docking)
-tests/ # pytest suites
-README.md
-LICENSE
-pyproject.toml
-environment.yml
-.gitignore
+- CADDack/
+- configs/ # YAML configs for runs
+- data/ # raw/processed data (gitignored except keepers)
+- docs/ # notes, design docs
+- examples/ # tiny runnable examples
+- notebooks/ # analysis notebooks
+- scripts/ # CLI entrypoints that call into src/caddack/*
+- src/caddack/ # package code (data, qsar, gnn, design, docking)
+- tests/ # pytest suites
+- README.md
+- LICENSE
+- pyproject.toml
+- environment.yml
+- .gitignore
 
 ---
 
