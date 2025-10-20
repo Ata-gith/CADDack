@@ -9,7 +9,13 @@ __pycache__/
 # Data & notebooks
 data/processed/
 *.ipynb_checkpoints
+data/raw/chembl/
+data/raw/uniprot/
+data/raw/pdb/
+
 
 # Build
 dist/
 build/
+
+

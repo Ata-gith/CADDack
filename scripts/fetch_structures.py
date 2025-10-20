@@ -3,7 +3,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-
+import csv
 import requests
 
 # Endpoints
@@ -76,19 +76,24 @@ def fetch_uniprot_fasta(uniprot_id: str, timeout: float = 20.0) -> dict:
         return {"id": uniprot_id, "fasta": None, "error": str(e)}
 
 
-def fetch_pdb_file(pdb_id: str, out_dir: str | None = None, fmt: str = "pdb", timeout: float = 30.0) -> dict:
-    base = (REPO_ROOT / "data" / "raw" / "pdb") if out_dir is None else Path(out_dir)
-    """
-    Download PDB/mmCIF from RCSB.
+def fetch_pdb_file(
+    pdb_id: str,
+    out_dir: str | None = None,
+    fmt: str = "pdb",
+    timeout: float = 30.0,
+) -> dict:
+    """Download PDB/mmCIF from RCSB into <repo>/data/raw/pdb by default.
     Return: {"id": pdb_id, "path": <str|None>, "error": <str|None>}
     """
     pdb_code = pdb_id.upper().strip()
     if fmt not in {"pdb", "cif"}:
         return {"id": pdb_id, "path": None, "error": "fmt must be 'pdb' or 'cif'"}
+
+    base_out = (REPO_ROOT / "data" / "raw" / "pdb") if out_dir is None else Path(out_dir)
+    base_out.mkdir(parents=True, exist_ok=True)
+    out_path = base_out / f"{pdb_code}.{fmt}"
     url = f"{RCSB_FILE_BASE}/{pdb_code}.{fmt}"
-    out_dir_p = Path(out_dir)
-    out_dir_p.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir_p / f"{pdb_code}.{fmt}"
+
     try:
         r = _get(url, timeout=timeout, stream=True)
         if r.status_code != 200:
@@ -102,6 +107,7 @@ def fetch_pdb_file(pdb_id: str, out_dir: str | None = None, fmt: str = "pdb", ti
         return {"id": pdb_id, "path": None, "error": str(e)}
 
 
+
 def add_cli(subparsers):
     p = subparsers.add_parser(
         "fetch",
@@ -113,6 +119,7 @@ def add_cli(subparsers):
     p.add_argument("--pdb-fmt", choices=["pdb", "cif"], default="pdb", help="PDB download format")
     p.add_argument("--pdb-outdir", default=str(REPO_ROOT / "data" / "raw" / "pdb"), help="Directory to save PDB files")
     p.add_argument("--out", default="-", help="Output JSON path or '-' for stdout")
+    p.add_argument("--emit-mols-csv", default=None, help="If set, write a CSV of fetched ligands (SMILES,chembl_id)")
     p.set_defaults(func=run)
 
 
@@ -123,12 +130,14 @@ def run(args):
         "pdb": {},
         "meta": {"ok": True, "errors": []},
     }
+    chembl_rows = []
 
     for cid in args.chembl:
         rec = fetch_chembl_smiles(cid)
         if rec["smiles"]:
             path = save_chembl(cid, rec["smiles"])
             result["chembl"][cid] = {"smiles_path": path}
+            chembl_rows.append({"SMILES": rec["smiles"], "chembl_id": cid})
         else:
             result["chembl"][cid] = None
             result["meta"]["errors"].append({"chembl": cid, "msg": rec["error"]})
@@ -161,6 +170,16 @@ def run(args):
         outp.parent.mkdir(parents=True, exist_ok=True)
         outp.write_text(payload, encoding="utf-8")
 
+    if args.emit_mols_csv:
+        out_csv = Path(args.emit_mols_csv)
+        out_csv.parent.mkdir(parents=True, exist_ok=True)
+        with out_csv.open("w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=["SMILES", "chembl_id"])
+            w.writeheader()
+            w.writerows(chembl_rows)
+
+    if result["meta"]["errors"]:
+        result["meta"]["ok"] = False
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="caddack", description="CADDack CLI")

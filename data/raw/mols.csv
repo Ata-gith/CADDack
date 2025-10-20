@@ -1,0 +1,4 @@
+SMILES,chembl_id
+CC(=O)Oc1ccccc1C(=O)O,CHEMBL25
+CCCc1nn(C)c2c(=O)[nH]c(-c3cc(S(=O)(=O)N4CCN(C)CC4)ccc3OCC)nc12,CHEMBL192
+CCCCCCCCCC(=O)OC1(c2ccc(Cl)cc2)CCN(CCCC(=O)c2ccc(F)cc2)CC1,CHEMBL1200986
