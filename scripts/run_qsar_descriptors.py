@@ -7,7 +7,7 @@ from caddack.qsar.descriptors import featurize_dataframe
 
 
 def add_cli(subparsers):
-    p = subparsers.add_parser("qsar", help="Featurize a CSV with SMILES")
+    p = subparsers.add_parser("qsar-descriptors", help="Featurize a CSV with SMILES")
     p.add_argument("--csv", required=True, help="Input CSV path")
     p.add_argument("--smiles-col", default="SMILES", help="Column containing SMILES")
     p.add_argument("--radius", type=int, default=2, help="Morgan radius")

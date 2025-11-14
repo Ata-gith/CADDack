@@ -1,0 +1,8 @@
+{
+  "split": "scaffold",
+  "test_size": 0.2,
+  "seed": 42,
+  "n_train": 2,
+  "n_test": 1,
+  "task": "regression"
+}

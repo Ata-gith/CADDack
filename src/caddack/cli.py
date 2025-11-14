@@ -18,8 +18,11 @@ def main():
     import scripts.fetch_structures as fs
     fs.add_cli(sub)
 
-    import scripts.run_qsar as qs
+    import scripts.run_qsar_descriptors as qs
     qs.add_cli(sub)
+
+    import scripts.train_qsar as tq
+    tq.add_cli(sub)
 
     args = parser.parse_args()
     return args.func(args)
