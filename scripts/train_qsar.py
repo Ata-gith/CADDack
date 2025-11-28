@@ -118,7 +118,7 @@ def run(args):
             n_estimators=args.n_estimators,
             random_state=args.seed,
             n_jobs=-1,
-            # "auto" in sklearn is deprecated; map it to default behavior
+
             max_features="sqrt" if args.max_features == "auto" else args.max_features,
         )
         model.fit(X_train, y_train)
