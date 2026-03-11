@@ -30,6 +30,16 @@ def _split_indices(n: int, test_size: float = 0.2, seed: int = 42):
     return order[:cut], order[cut:]
 
 
+def _prepare_frame(df, smiles_col: str, target_col: str, task: str, positive_threshold: float | None):
+    if smiles_col not in df or target_col not in df:
+        raise ValueError(f"Missing required columns {smiles_col!r} and/or {target_col!r}")
+
+    data_df = df[[smiles_col, target_col]].dropna().copy()
+    if task == "classification" and positive_threshold is not None:
+        data_df[target_col] = (data_df[target_col].astype(float) >= float(positive_threshold)).astype(int)
+    return data_df
+
+
 def train_from_csv(
     csv_path: str | Path,
     smiles_col: str,
@@ -44,6 +54,7 @@ def train_from_csv(
     num_layers: int = 3,
     test_size: float = 0.2,
     seed: int = 42,
+    positive_threshold: float | None = None,
 ) -> Dict[str, float]:
     torch, F, DataLoader, accuracy_score, roc_auc_score, mean_absolute_error, r2_score = _require_torch_geometric()
     try:
@@ -52,10 +63,7 @@ def train_from_csv(
         raise ImportError("pandas is required to read training CSV files.") from exc
 
     df = pd.read_csv(csv_path)
-    if smiles_col not in df or target_col not in df:
-        raise ValueError(f"Missing required columns {smiles_col!r} and/or {target_col!r}")
-
-    data_df = df[[smiles_col, target_col]].dropna().copy()
+    data_df = _prepare_frame(df, smiles_col=smiles_col, target_col=target_col, task=task, positive_threshold=positive_threshold)
     dataset = build_pyg_dataset(data_df[smiles_col].tolist(), data_df[target_col].tolist())
     if len(dataset) < 4:
         raise ValueError("Need at least 4 valid molecules to train/evaluate")
