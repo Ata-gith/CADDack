@@ -24,6 +24,9 @@ def main():
     import scripts.train_qsar as tq
     tq.add_cli(sub)
 
+    import scripts.train_gnn as tg
+    tg.add_cli(sub)
+
     args = parser.parse_args()
     return args.func(args)
 
