@@ -35,7 +35,7 @@ def run(args):
     feats = featurize_dataframe(df, smiles_col=args.smiles_col, radius=args.radius, n_bits=args.bits)
 
     if args.drop_errors and "__error" in feats.columns:
-        feats = feats[feats["__error"].isna() | (feats["__error"] != "invalid_smiles")]
+        feats = feats[feats["__error"] != "invalid_smiles"]
 
     outp = Path(args.out)
     outp.parent.mkdir(parents=True, exist_ok=True)
