@@ -9,7 +9,24 @@ description = "CADDack: modular CADD toolkit"
 readme = "README.md"
 requires-python = ">=3.9"
 authors = [{name = "Ata Ozkan"}]
-dependencies = []
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=1.5",
+    "scikit-learn>=1.2",
+    "requests>=2.28",
+    "joblib>=1.2",
+]
+
+[project.optional-dependencies]
+gnn = [
+    "torch>=2.0",
+    "torch-geometric>=2.3",
+    "torch-scatter>=2.1",
+    "rdkit>=2023.3",
+]
+dev = [
+    "pytest>=7.0",
+]
 
 [project.scripts]
 caddack = "caddack.cli:main"
