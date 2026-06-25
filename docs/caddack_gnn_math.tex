@@ -389,9 +389,15 @@ Gradients flow through $\mu_{ij}$ and $\rho_{ij}$:
 \begin{equation}
 \frac{\partial w_{ij}}{\partial \mu_{ij}} = 1,
 \qquad
-\frac{\partial w_{ij}}{\partial \rho_{ij}} = \varepsilon_{ij}\,\sigma'(\rho_{ij})
-= \varepsilon_{ij}\,\sigma({\rho_{ij}})\bigl(1 - \sigma(\rho_{ij})\bigr)
+\frac{\partial w_{ij}}{\partial \rho_{ij}}
+= \varepsilon_{ij}\,\frac{d}{d\rho}\softplus(\rho_{ij})
+= \varepsilon_{ij}\,\frac{e^{\rho_{ij}}}{1 + e^{\rho_{ij}}}
+= \frac{\varepsilon_{ij}}{1 + e^{-\rho_{ij}}}
 \end{equation}
+
+The last form is the logistic sigmoid $s(\rho) = 1/(1+e^{-\rho})$ evaluated at $\rho_{ij}$.
+Note that $\frac{d}{d\rho}\softplus(\rho) = s(\rho)$, \emph{not} $s(\rho)(1-s(\rho))$;
+the latter is the self-derivative identity of the logistic sigmoid itself and does not apply here.
 
 \subsection{KL divergence (\code{bayes.py:BayesianLinear.kl})}
 
