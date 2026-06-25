@@ -22,6 +22,27 @@ def _require_torch():
     return torch, nn, F, GCNConv, GINEConv, global_add_pool, global_mean_pool
 
 
+def _radius_graph_pure(pos, r, batch, loop=False):
+    """Pure-PyTorch radius graph; fallback when pyg-lib is unavailable."""
+    import torch
+    rows, cols = [], []
+    offset = 0
+    for b in batch.unique():
+        mask = batch == b
+        sub = pos[mask]
+        n = sub.shape[0]
+        diff = sub.unsqueeze(0) - sub.unsqueeze(1)   # [n, n, 3]
+        dist = diff.norm(dim=-1)                      # [n, n]
+        adj = (dist <= r) if loop else ((dist <= r) & (dist > 0))
+        src, dst = adj.nonzero(as_tuple=True)
+        rows.append(src + offset)
+        cols.append(dst + offset)
+        offset += n
+    if not rows:
+        return torch.empty((2, 0), dtype=torch.long, device=pos.device)
+    return torch.stack([torch.cat(rows), torch.cat(cols)])
+
+
 def _require_torch_geo():
     """Subset of requirements for the geometry tower."""
     try:
@@ -29,11 +50,21 @@ def _require_torch_geo():
         import torch.nn as nn
         import torch.nn.functional as F
         from torch_geometric.nn import global_add_pool  # type: ignore
-        from torch_geometric.nn import radius_graph  # type: ignore
-        from torch_scatter import scatter  # type: ignore
+        try:
+            from torch_geometric.nn import radius_graph  # type: ignore
+            # Probe whether radius_graph actually works (pyg>=2.4 requires pyg-lib)
+            _test_pos = torch.zeros(2, 3)
+            _test_bat = torch.zeros(2, dtype=torch.long)
+            radius_graph(_test_pos, r=1.0, batch=_test_bat, loop=False)
+        except (ImportError, Exception):
+            radius_graph = _radius_graph_pure  # type: ignore
+        try:
+            from torch_scatter import scatter  # type: ignore
+        except ImportError:
+            from torch_geometric.utils import scatter  # type: ignore  # pyg>=2.3 built-in
     except Exception as exc:
         raise ImportError(
-            "PyTorch + torch-geometric + torch-scatter are required for the geometry tower."
+            "PyTorch + torch-geometric are required for the geometry tower."
         ) from exc
     return torch, nn, F, global_add_pool, radius_graph, scatter
 
