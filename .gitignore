@@ -18,4 +18,11 @@ data/raw/pdb/
 dist/
 build/
 
+# LaTeX build artifacts
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+
 
