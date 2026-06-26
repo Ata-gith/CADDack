@@ -1,0 +1,651 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{parskip}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{microtype}
+\usepackage{bm}
+
+\geometry{margin=2.5cm}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!60!black,
+  urlcolor=blue!60!black,
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\rhead{\small CADDack GNN Mathematics}
+\lhead{\small \nouppercase{\leftmark}}
+\cfoot{\thepage}
+
+\titleformat{\section}{\large\bfseries}{{\S}\,\thesection}{1em}{}[\vspace{-4pt}\rule{\linewidth}{0.4pt}]
+\titleformat{\subsection}{\normalsize\bfseries}{\thesubsection}{1em}{}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\N}{\mathcal{N}}
+\newcommand{\bx}{\mathbf{x}}
+\newcommand{\bh}{\mathbf{h}}
+\newcommand{\be}{\mathbf{e}}
+\newcommand{\br}{\mathbf{r}}
+\newcommand{\bmu}{\boldsymbol{\mu}}
+\newcommand{\bs}{\boldsymbol{\sigma}}
+\newcommand{\bphi}{\boldsymbol{\phi}}
+\newcommand{\softplus}{\mathrm{softplus}}
+\newcommand{\ReLU}{\mathrm{ReLU}}
+\newcommand{\SiLU}{\mathrm{SiLU}}
+\newcommand{\MLP}{\mathrm{MLP}}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{%
+  \textbf{CADDack: GNN Mathematics Reference}\\[6pt]
+  \large Two-Tower Bayesian Fusion Model for Protein--Ligand Binding Affinity
+}
+\author{CADDack Project}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{fancy}
+
+\begin{abstract}
+This document gives a self-contained mathematical description of every computation
+performed by the CADDack graph neural network stack, from raw molecular input to
+predicted binding affinity with calibrated uncertainty.  The architecture consists of
+(1) a 2D ligand message-passing encoder (GCN / GINE), (2) a 3D geometry tower
+(SchNet-style continuous-filter convolution), (3) a Bayesian fusion head
+(Bayes-by-Backprop, heteroscedastic ELBO), and (4) Monte Carlo uncertainty
+decomposition at inference.  Each formula is cross-referenced to its implementing
+source file.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% ============================================================
+\section{Input Representation}
+\label{sec:input}
+% ============================================================
+
+\subsection{Atom feature vector (\code{datasets.py:\_atom\_features})}
+
+Each heavy atom $i$ in a molecule is represented by a seven-dimensional feature
+vector $\bx_i \in \R^7$:
+
+\begin{equation}
+\bx_i =
+\bigl[
+  z_i,\;
+  \deg(i),\;
+  q_i,\;
+  \mathbf{1}_{\mathrm{arom}},\;
+  \mathrm{hyb}_i,\;
+  n^H_i,\;
+  \mathbf{1}_{\mathrm{ring}}
+\bigr]^{\!\top}
+\end{equation}
+
+where:
+\begin{itemize}
+  \item $z_i \in \mathbb{Z}_{>0}$ is the atomic number (e.g.\ $z=6$ for carbon, $z=7$ for nitrogen).
+  \item $\deg(i)$ is the number of explicit bonds (degree in the molecular graph).
+  \item $q_i$ is the formal charge.
+  \item $\mathbf{1}_{\mathrm{arom}} \in \{0,1\}$ indicates aromaticity.
+  \item $\mathrm{hyb}_i \in \{1,\ldots,6\}$ is the integer encoding of the hybridisation
+        state (SP, SP2, SP3, \ldots).
+  \item $n^H_i$ is the total hydrogen count (implicit + explicit).
+  \item $\mathbf{1}_{\mathrm{ring}} \in \{0,1\}$ indicates ring membership.
+\end{itemize}
+
+All entries are cast to \texttt{float32}.
+
+\subsection{Bond feature vector (\code{datasets.py:\_bond\_features})}
+
+Each bond $(i,j)$ in the molecular graph is represented by a seven-dimensional edge
+feature vector $\be_{ij} \in \R^7$:
+
+\begin{equation}
+\be_{ij} =
+\bigl[
+  \mathbf{1}_{\text{single}},\;
+  \mathbf{1}_{\text{double}},\;
+  \mathbf{1}_{\text{triple}},\;
+  \mathbf{1}_{\text{arom}},\;
+  \mathbf{1}_{\text{conj}},\;
+  \mathbf{1}_{\text{ring}},\;
+  \mathrm{stereo}
+\bigr]^{\!\top}
+\end{equation}
+
+The first four elements form a one-hot encoding of bond order/type.
+$\mathrm{stereo} \in \{0,1,2,\ldots\}$ is the integer cast of the RDKit stereo enum.
+
+Edges are \textbf{bidirectional}: for each bond $(i,j)$ both directed edges
+$(i \to j)$ and $(j \to i)$ are inserted with identical features.
+
+% ============================================================
+\section{Tower 1 --- Ligand 2D Message Passing}
+\label{sec:tower1}
+% ============================================================
+
+\subsection{MolecularGCN (\code{models.py:MolecularGCN})}
+
+The Graph Convolutional Network~\cite{kipf2017} applies the symmetric-normalised
+spectral convolution at each layer $\ell$:
+
+\begin{equation}
+\bx_i^{(\ell+1)}
+= \ReLU\!\left(
+    W^{(\ell)} \sum_{j \in \mathcal{N}(i) \cup \{i\}}
+    \frac{\bx_j^{(\ell)}}{\sqrt{d_i\, d_j}}
+  \right)
+\label{eq:gcn}
+\end{equation}
+
+where $d_i = \deg(i)+1$ (self-loop included) and $W^{(\ell)} \in \R^{C \times C}$ is
+the learnable weight matrix.  Dropout with rate $p$ is applied after each
+non-linearity.
+
+After $L$ convolutional layers, global \emph{mean} pooling produces the molecular
+embedding:
+
+\begin{equation}
+\bh_{\mathrm{mol}} = \frac{1}{|\mathcal{V}|} \sum_{i \in \mathcal{V}} \bx_i^{(L)}
+\;\in \R^C
+\end{equation}
+
+The prediction head is a single affine map: $\hat{y} = \mathbf{w}^\top \bh_{\mathrm{mol}} + b$.
+
+\subsection{MolecularGINE (\code{models.py:MolecularGINE})}
+
+The Graph Isomorphism Network with Edge features (GINE)~\cite{xu2019,hu2020}
+extends GIN~\cite{xu2019} to incorporate bond features.  At layer $\ell$:
+
+\begin{equation}
+\bx_i^{(\ell+1)}
+= \MLP^{(\ell)}\!\left(
+    (1 + \varepsilon)\,\bx_i^{(\ell)}
+    + \sum_{j \in \mathcal{N}(i)} \ReLU\!\bigl(\bx_j^{(\ell)} + \be_{ij}\bigr)
+  \right)
+\label{eq:gine}
+\end{equation}
+
+Key design choices:
+\begin{itemize}
+  \item The edge features $\be_{ij}$ are added (not concatenated) to the sender
+        embedding before aggregation.  This is algebraically equivalent to a
+        first-order Taylor expansion of an edge-conditioned filter.
+  \item Aggregation is \textbf{summation}, which is strictly more expressive than
+        mean or max and makes GINE at least as powerful as the
+        Weisfeiler--Leman (1-WL) graph isomorphism test~\cite{xu2019}.
+  \item Each $\MLP^{(\ell)}$ is a two-layer network:
+        $\operatorname{Linear}(C_{\mathrm{in}} \to C) \to \ReLU \to
+        \operatorname{Linear}(C \to C)$.
+\end{itemize}
+
+After $L$ layers, global \emph{add} pooling:
+
+\begin{equation}
+\bh_{\mathrm{lig}} = \sum_{i \in \mathcal{V}} \bx_i^{(L)} \;\in \R^C
+\end{equation}
+
+GINE is the recommended ligand encoder because bond-order information (double bonds,
+aromaticity) is essential for molecular property prediction.
+
+% ============================================================
+\section{Tower 2 --- 3D Geometry Tower}
+\label{sec:tower2}
+% ============================================================
+
+Based on SchNet~\cite{schutt2017}.  The tower operates exclusively on
+\emph{interatomic distances}, which guarantees $\mathrm{SE}(3)$ invariance.
+
+\subsection{Atom embedding}
+
+\begin{equation}
+\bh_i^{(0)} = \mathrm{Embedding}(z_i) \;\in \R^C
+\end{equation}
+
+A learned look-up table maps each integer atomic number $z_i$ to a $C$-dimensional
+vector.
+
+\subsection{Radius graph}
+
+Edges are created between all atom pairs within cutoff $c$ (default $c = 6.0$\,\AA):
+
+\begin{equation}
+\mathcal{E} = \bigl\{(i,j) : \|\br_i - \br_j\|_2 \leq c,\; i \neq j\bigr\}
+\end{equation}
+
+The edge set spans ligand--ligand, pocket--pocket, \emph{and} ligand--pocket pairs.
+The ligand--pocket cross-edges represent the direct binding contacts that the model
+must learn from.  The radius graph is computed \emph{inside} \code{forward()}
+using the per-batch position tensors so that no pre-computed \code{edge\_index}
+ever needs PyG collation across differently-sized graphs.
+
+\subsection{Gaussian radial basis functions (\code{models.py:GaussianRBF})}
+
+The scalar distance $d_{ij} = \|\br_i - \br_j\|_2$ is expanded into $K$ basis
+functions:
+
+\begin{equation}
+\phi_k(d) = \exp\!\left( -\frac{(d - \mu_k)^2}{\gamma} \right), \quad k = 1, \ldots, K
+\label{eq:rbf}
+\end{equation}
+
+where the centres $\mu_k$ are equally spaced on $[0, c]$:
+
+\begin{equation}
+\mu_k = \frac{(k-1)\,c}{K-1}, \qquad
+\gamma = \left(\frac{c}{K}\right)^{\!2}
+\end{equation}
+
+The resulting feature vector $\bphi(d_{ij}) \in \R^K$ is a soft histogram over
+distance ranges ($K = 50$ by default).
+
+\subsection{Cosine envelope}
+
+To ensure that messages vanish smoothly at the cutoff boundary (preventing
+a discontinuity in the learned function at $d = c$):
+
+\begin{equation}
+w(d) = \tfrac{1}{2}\Bigl(\cos\!\Bigl(\frac{\pi\, d}{c}\Bigr) + 1\Bigr)
+\label{eq:envelope}
+\end{equation}
+
+$w(0) = 1$, $w(c/2) = 1/2$, $w(c) = 0$.
+
+\subsection{Interaction block (\code{models.py:\_InteractionBlock})}
+
+Each of the $T$ interaction blocks ($T = 3$ by default) performs the following
+steps.
+
+\paragraph{Filter generation.}
+\begin{equation}
+\mathbf{f}_{ij}^{(\ell)}
+= \mathrm{FilterNet}^{(\ell)}\!\bigl(\bphi(d_{ij})\bigr)
+  \cdot w(d_{ij})
+\;\in \R^C
+\label{eq:filter}
+\end{equation}
+
+where $\mathrm{FilterNet}$ is a two-layer MLP with SiLU activations:
+
+\begin{equation}
+\mathrm{FilterNet}(\mathbf{u})
+= W_2\,\SiLU(W_1\,\mathbf{u} + b_1) + b_2,
+\qquad
+\SiLU(x) = x\,\sigma(x)
+\end{equation}
+
+\paragraph{Continuous-filter message.}
+\begin{equation}
+\mathbf{m}_{ij}^{(\ell)}
+= \bh_j^{(\ell)} \odot \mathbf{f}_{ij}^{(\ell)}
+\;\in \R^C
+\label{eq:cfconv}
+\end{equation}
+
+The sender embedding is modulated element-wise by the distance-dependent filter.
+Unlike graph convolutions with fixed weight matrices, the filter here is a
+\emph{continuous function of distance} that is learned end-to-end.
+
+\paragraph{Aggregation and residual update.}
+\begin{align}
+\mathbf{a}_i^{(\ell)}
+  &= \sum_{\substack{j:\,(i,j)\in\mathcal{E}}} \mathbf{m}_{ij}^{(\ell)}
+\label{eq:agg}\\[4pt]
+\bh_i^{(\ell+1)}
+  &= \bh_i^{(\ell)} + \mathrm{UpdateMLP}^{(\ell)}\!\bigl(\mathbf{a}_i^{(\ell)}\bigr)
+\label{eq:residual}
+\end{align}
+
+$\mathrm{UpdateMLP}$: $\operatorname{Linear}(C\to C) \to \SiLU \to
+\operatorname{Linear}(C\to C)$.  The residual connection stabilises training.
+
+\subsection{Readout}
+
+\begin{equation}
+\bh_{\mathrm{geo}} = \sum_{i \in \mathcal{V}} \bh_i^{(T)} \;\in \R^C
+\end{equation}
+
+\subsection{SE(3) invariance}
+
+The geometry tower is invariant to all rigid-body transformations of the complex.
+For any rotation $R \in \mathrm{SO}(3)$ and translation $\mathbf{t} \in \R^3$:
+
+\begin{equation}
+\bigl\|(R\,\br_i + \mathbf{t}) - (R\,\br_j + \mathbf{t})\bigr\|_2
+= \|\br_i - \br_j\|_2
+\end{equation}
+
+Since every computation depends only on $d_{ij}$, the output is unchanged under
+rotation or translation of the entire complex.
+
+% ============================================================
+\section{Bayesian Fusion Head}
+\label{sec:bayes}
+% ============================================================
+
+Based on Bayes-by-Backprop~\cite{blundell2015}.  Towers are deterministic;
+only the fusion head is Bayesian.  This keeps the KL tractable and training stable.
+
+\subsection{Fusion}
+
+The two tower outputs are concatenated:
+
+\begin{equation}
+\mathbf{h} = \bigl[\bh_{\mathrm{lig}};\, \bh_{\mathrm{geo}}\bigr] \in \R^{2C}
+\end{equation}
+
+\subsection{Variational posterior (\code{bayes.py:BayesianLinear})}
+
+Each weight $w_{ij}$ in the fusion MLP has an independent Gaussian posterior:
+
+\begin{equation}
+q(w_{ij}) = \mathcal{N}\!\bigl(\mu_{ij},\, \sigma_{ij}^2\bigr)
+\end{equation}
+
+The standard deviation is parameterised via the softplus function to ensure
+positivity:
+
+\begin{equation}
+\sigma_{ij} = \softplus(\rho_{ij}) = \ln\!\bigl(1 + e^{\rho_{ij}}\bigr)
+\label{eq:softplus}
+\end{equation}
+
+Initialisation: $\mu_{ij}$ with Kaiming uniform; $\rho_{ij} = -5$, so
+
+\begin{equation}
+\sigma_{ij}\big|_{\rho=-5}
+= \softplus(-5) = \ln(1 + e^{-5}) \approx 0.0067
+\end{equation}
+
+The network starts near-deterministic, giving the mean parameters time to reach
+useful values before the posterior widens.
+
+\subsection{Reparameterisation trick}
+
+To allow gradient-based optimisation through stochastic weights:
+
+\begin{equation}
+w_{ij} = \mu_{ij} + \sigma_{ij}\,\varepsilon_{ij},
+\qquad
+\varepsilon_{ij} \sim \mathcal{N}(0, 1)
+\label{eq:reparam}
+\end{equation}
+
+The randomness is moved into $\varepsilon_{ij}$, which carries no parameters.
+Gradients flow through $\mu_{ij}$ and $\rho_{ij}$:
+
+\begin{equation}
+\frac{\partial w_{ij}}{\partial \mu_{ij}} = 1,
+\qquad
+\frac{\partial w_{ij}}{\partial \rho_{ij}}
+= \varepsilon_{ij}\,\frac{d}{d\rho}\softplus(\rho_{ij})
+= \varepsilon_{ij}\,\frac{e^{\rho_{ij}}}{1 + e^{\rho_{ij}}}
+= \frac{\varepsilon_{ij}}{1 + e^{-\rho_{ij}}}
+\end{equation}
+
+The last form is the logistic sigmoid $s(\rho) = 1/(1+e^{-\rho})$ evaluated at $\rho_{ij}$.
+Note that $\frac{d}{d\rho}\softplus(\rho) = s(\rho)$, \emph{not} $s(\rho)(1-s(\rho))$;
+the latter is the self-derivative identity of the logistic sigmoid itself and does not apply here.
+
+\subsection{KL divergence (\code{bayes.py:BayesianLinear.kl})}
+
+The prior is $p(w) = \mathcal{N}(0,\, \sigma_{\mathrm{prior}}^2)$.
+The closed-form KL between posterior and prior is:
+
+\begin{equation}
+\mathrm{KL}\!\bigl(q \,\|\, p\bigr)
+= \sum_{i,j}
+  \left[
+    \ln\frac{\sigma_{\mathrm{prior}}}{\sigma_{ij}}
+    + \frac{\sigma_{ij}^2 + \mu_{ij}^2}{2\,\sigma_{\mathrm{prior}}^2}
+    - \frac{1}{2}
+  \right]
+\label{eq:kl}
+\end{equation}
+
+This equals zero when $\mu_{ij}=0$ and $\sigma_{ij}=\sigma_{\mathrm{prior}}$ (posterior
+equals prior).  As the network learns, $\mu_{ij}$ shifts away from zero and
+$\sigma_{ij}$ compresses, increasing the KL.  The term acts as a regulariser on
+the magnitude and certainty of learned weights.
+
+The total KL over the entire Bayesian MLP is the sum over all layers:
+
+\begin{equation}
+\mathrm{KL}_{\mathrm{total}} = \sum_{d=1}^{D} \mathrm{KL}_d
+\end{equation}
+
+\subsection{BayesianMLP output heads (\code{bayes.py:BayesianMLP})}
+
+After $D$ Bayesian hidden layers with ReLU activations, two \emph{deterministic}
+linear output heads produce:
+
+\begin{align}
+\hat{\mu} &= \mathbf{w}_\mu^\top\,\mathbf{x}^{(D)} + b_\mu \;\in \R
+  \quad\text{(predicted affinity mean)}\\
+s &= \mathrm{clamp}\!\bigl(
+      \mathbf{w}_s^\top\,\mathbf{x}^{(D)} + b_s,\;
+      {-10},\; 10
+    \bigr) \;\in \R
+  \quad\text{(log predictive variance, } s = \log\sigma_{\mathrm{al}}^2\text{)}
+\end{align}
+
+The clamp prevents numerical overflow in $e^{s}$ and $e^{-s}$.
+
+\subsection{Heteroscedastic Gaussian NLL}
+
+The model treats the affinity target as a Gaussian:
+$y \sim \mathcal{N}(\hat{\mu},\, e^s)$.  The per-example negative
+log-likelihood (dropping the additive constant $\tfrac{1}{2}\ln 2\pi$) is:
+
+\begin{equation}
+\ell_i = \frac{1}{2}\Bigl[e^{-s_i}\,(y_i - \hat{\mu}_i)^2 + s_i\Bigr]
+\label{eq:hetero_nll}
+\end{equation}
+
+The term $e^{-s_i}$ reweights the squared error by the \emph{inverse predicted
+variance}: when the model signals high aleatoric uncertainty (large $s_i$), the
+squared error is discounted and the model only pays the entropy penalty $s_i$.
+This makes the loss \emph{self-calibrating} — the model is penalised for being
+overconfident and rewarded for expressing appropriate uncertainty.
+
+The batch NLL is the mean:
+
+\begin{equation}
+\mathrm{NLL}_{\mathrm{batch}}
+= \frac{1}{B} \sum_{i=1}^{B} \ell_i
+\end{equation}
+
+\subsection{ELBO training objective (\code{bayes.py:elbo\_loss})}
+
+Variational inference maximises the Evidence Lower Bound~\cite{blundell2015}:
+
+\begin{equation}
+\mathcal{L}_{\mathrm{ELBO}}
+= \mathbb{E}_{w \sim q}\!\bigl[\ln p(\mathbf{Y} \mid \mathbf{X}, w)\bigr]
+  - \mathrm{KL}\!\bigl(q(w) \,\|\, p(w)\bigr)
+\end{equation}
+
+Minimising the negative ELBO per gradient step gives:
+
+\begin{equation}
+\boxed{
+\mathcal{L}
+= \underbrace{\mathrm{NLL}_{\mathrm{batch}}}_{\text{reconstruction}}
++ \underbrace{\beta \cdot \frac{\mathrm{KL}_{\mathrm{total}}}{N_{\mathrm{train}}}}_{\text{regularisation}}
+}
+\label{eq:elbo}
+\end{equation}
+
+where:
+\begin{itemize}
+  \item The NLL is estimated with \emph{one} weight sample per step (unbiased MC
+        estimator of $\mathbb{E}_q[\mathrm{NLL}]$).
+  \item $N_{\mathrm{train}}$ normalises the KL to per-example scale, preventing the
+        regularisation term from dominating as the dataset grows.
+  \item $\beta$ is the annealed KL weight (Section~\ref{sec:warmup}).
+\end{itemize}
+
+\subsection{KL warmup schedule (\code{train.py:train\_fusion\_from\_complexes})}
+\label{sec:warmup}
+
+\begin{equation}
+\beta(\text{epoch}) = \beta_{\max} \cdot \min\!\left(1,\;
+  \frac{\text{epoch}+1}{\tau}\right)
+\label{eq:warmup}
+\end{equation}
+
+where $\beta_{\max}$ = \texttt{kl\_weight} (default 1.0) and $\tau$ =
+\texttt{kl\_warmup} (default 10 epochs).
+
+\medskip
+\textbf{Why warmup?}  At epoch 0, a full KL penalty forces
+$\sigma_{ij} \to \sigma_{\mathrm{prior}}$ (posterior collapses to the prior mean).
+The means $\mu_{ij}$ receive no useful gradient, and the network never escapes the
+prior.  By starting at $\beta = 0$ and ramping linearly, the network first
+builds informative mean parameters before the regulariser becomes active.
+
+% ============================================================
+\section{Uncertainty Decomposition at Inference}
+\label{sec:uncertainty}
+% ============================================================
+
+At test time, $T$ independent forward passes are drawn by sampling different
+weight realisations:
+
+\begin{equation}
+\bigl\{(\hat{\mu}_t,\, s_t)\bigr\}_{t=1}^{T}, \quad
+\hat{\mu}_t = \hat{\mu}(w_t),\quad w_t \sim q(w)
+\end{equation}
+
+\paragraph{Predictive mean.}
+\begin{equation}
+\bar{y} = \frac{1}{T}\sum_{t=1}^{T} \hat{\mu}_t
+\end{equation}
+
+\paragraph{Epistemic uncertainty.}  Model uncertainty, reducible with more data:
+\begin{equation}
+\sigma_{\mathrm{ep}}^2
+= \mathrm{Var}_t(\hat{\mu}_t)
+= \frac{1}{T}\sum_{t=1}^{T}(\hat{\mu}_t - \bar{y})^2
+\label{eq:epistemic}
+\end{equation}
+
+\paragraph{Aleatoric uncertainty.}  Irreducible noise intrinsic to the data:
+\begin{equation}
+\sigma_{\mathrm{al}}^2
+= \frac{1}{T}\sum_{t=1}^{T} e^{s_t}
+= \mathbb{E}_t\!\bigl[e^{s_t}\bigr]
+\label{eq:aleatoric}
+\end{equation}
+
+\paragraph{Total predictive variance.}  By the law of total variance:
+\begin{equation}
+\sigma_{\mathrm{total}}^2
+= \underbrace{\mathrm{Var}_t(\hat{\mu}_t)}_{\sigma_{\mathrm{ep}}^2}
++ \underbrace{\mathbb{E}_t\!\bigl[\sigma_{\mathrm{al},t}^2\bigr]}_{\sigma_{\mathrm{al}}^2}
+= \mathrm{Var}[Y] = \mathrm{Var}[\mathbb{E}[Y|W]] + \mathbb{E}[\mathrm{Var}[Y|W]]
+\label{eq:totalvar}
+\end{equation}
+
+Both standard deviations ($\sigma_{\mathrm{ep}}$, $\sigma_{\mathrm{al}}$) are
+returned in the same units as the affinity target (e.g.\ pK\textsubscript{d} units).
+
+% ============================================================
+\section{Training Losses for Standalone Models}
+\label{sec:losses}
+% ============================================================
+
+The standalone GCN and GINE models (no Bayesian head) are trained with:
+
+\begin{center}
+\renewcommand{\arraystretch}{1.5}
+\begin{tabular}{lll}
+\toprule
+\textbf{Task} & \textbf{Loss} & \textbf{Implemented in} \\
+\midrule
+Classification &
+  $\mathcal{L}_{\mathrm{BCE}} = -\dfrac{1}{B}\displaystyle\sum_{i}
+    \bigl[y_i\ln\sigma(\hat{y}_i) + (1-y_i)\ln(1-\sigma(\hat{y}_i))\bigr]$
+  & \code{train.py:step} \\[10pt]
+Regression &
+  $\mathcal{L}_{\mathrm{MSE}} = \dfrac{1}{B}\displaystyle\sum_{i}(\hat{y}_i - y_i)^2$
+  & \code{train.py:step} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\medskip
+Evaluation metrics:
+
+\begin{align}
+\mathrm{MAE} &= \frac{1}{N}\sum_{i=1}^N |\hat{y}_i - y_i| \\[4pt]
+R^2 &= 1 - \frac{\sum_i (\hat{y}_i - y_i)^2}{\sum_i (y_i - \bar{y})^2} \\[4pt]
+\mathrm{AUC\text{-}ROC} &= \Pr\!\bigl(\hat{p}_{\mathrm{pos}} > \hat{p}_{\mathrm{neg}}\bigr)
+\end{align}
+
+% ============================================================
+\section{Architecture Summary}
+\label{sec:summary}
+% ============================================================
+
+\begin{center}
+\renewcommand{\arraystretch}{1.4}
+\begin{tabular}{lllll}
+\toprule
+\textbf{Component} & \textbf{Input} & \textbf{Output} & \textbf{Default dim} & \textbf{Source} \\
+\midrule
+Atom embedding (Tower 2) & $z_i \in \mathbb{Z}$ & $\bh_i^{(0)} \in \R^C$ & $C=128$ & \code{models.py} \\
+GINE layers (Tower 1)    & $\bx_i^{(0)} \in \R^7$ & $\bh_{\mathrm{lig}} \in \R^C$ & $L=3$ & \code{models.py} \\
+GaussianRBF              & $d_{ij} \in \R$ & $\bphi(d_{ij}) \in \R^K$ & $K=50$ & \code{models.py} \\
+InteractionBlock (×$T$)  & $\bh^{(\ell)}, \mathcal{E}, \bphi$ & $\bh^{(\ell+1)} \in \R^C$ & $T=3$ & \code{models.py} \\
+Geometry readout         & $\bh_i^{(T)}$ & $\bh_{\mathrm{geo}} \in \R^C$ & $C=128$ & \code{models.py} \\
+Fusion concat            & $\bh_{\mathrm{lig}}, \bh_{\mathrm{geo}}$ & $\mathbf{h} \in \R^{2C}$ & $2C=256$ & \code{models.py} \\
+BayesianLinear (×$D$)    & $\mathbf{h}$ & $\mathbf{x}^{(D)} \in \R^{H_D}$ & $[256,128]$ & \code{bayes.py} \\
+Output heads             & $\mathbf{x}^{(D)}$ & $\hat{\mu}, s \in \R$ & --- & \code{bayes.py} \\
+MC uncertainty (×$T$)   & $T$ samples & $\bar{y}, \sigma_{\mathrm{ep}}, \sigma_{\mathrm{al}}$ & $T=30$ & \code{models.py} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ============================================================
+\begin{thebibliography}{9}
+\bibitem{kipf2017}
+T.~N. Kipf and M.~Welling,
+\textit{Semi-supervised classification with graph convolutional networks},
+ICLR, 2017.
+
+\bibitem{xu2019}
+K.~Xu, W.~Hu, J.~Leskovec, and S.~Jegelka,
+\textit{How powerful are graph neural networks?},
+ICLR, 2019.
+
+\bibitem{hu2020}
+W.~Hu, B.~Liu, J.~Gomes, M.~Zitnik, P.~Liang, V.~Pande, and J.~Leskovec,
+\textit{Strategies for pre-training graph neural networks},
+ICLR, 2020.
+
+\bibitem{schutt2017}
+K.~T. Sch\"{u}tt, F.~Arbabzadah, S.~Chmiela, K.~R. M\"{u}ller, and
+A.~Tkatchenko,
+\textit{Quantum-chemical insights from deep tensor neural networks},
+Nature Communications, 2017.
+
+\bibitem{blundell2015}
+C.~Blundell, J.~Cornebise, K.~Kavukcuoglu, and D.~Wierstra,
+\textit{Weight uncertainty in neural networks},
+ICML, 2015.
+\end{thebibliography}
+
+\end{document}
