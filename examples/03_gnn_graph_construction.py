@@ -39,7 +39,7 @@ targets = [5.2, 6.1, 4.8, 3.9]
 
 # ── 1. GraphArrays: framework-agnostic intermediate ──────────────────────────
 
-print("── GraphArrays ──────────────────────────────────────────")
+print("GraphArrays")
 graph = smiles_to_graph_arrays(smiles_list[0])
 print(f"Aspirin node_features : {len(graph.node_features)} atoms × {len(graph.node_features[0])} features")
 print(f"Aspirin edge_index    : {len(graph.edge_index)} directed edges")
@@ -49,7 +49,7 @@ print()
 
 # ── 2. Convert to PyG Data ────────────────────────────────────────────────────
 
-print("── PyG Data ─────────────────────────────────────────────")
+print("PyG Data")
 pyg = to_pyg_data(graph, y=targets[0])
 print(f"x shape       : {pyg.x.shape}")
 print(f"edge_index    : {pyg.edge_index.shape}")
@@ -59,18 +59,18 @@ print()
 
 # ── 3. Build a batched dataset ────────────────────────────────────────────────
 
-print("── Dataset + DataLoader ─────────────────────────────────")
+print("Dataset + DataLoader")
 dataset = build_pyg_dataset(smiles_list, targets)
 loader = DataLoader(dataset, batch_size=4, shuffle=False)
 batch = next(iter(loader))
 print(f"Batch x           : {batch.x.shape}  (all atoms concatenated)")
 print(f"Batch edge_index  : {batch.edge_index.shape}")
-print(f"Batch batch vector: {batch.batch.tolist()}  (maps atom → molecule index)")
+print(f"Batch batch vector: {batch.batch.tolist()}  (maps atom to molecule index)")
 print()
 
 # ── 4. MolecularGCN forward pass ─────────────────────────────────────────────
 
-print("── MolecularGCN ─────────────────────────────────────────")
+print("MolecularGCN")
 gcn = MolecularGCN.build(
     in_channels=7,
     hidden_channels=64,
@@ -87,7 +87,7 @@ print()
 
 # ── 5. MolecularGINE forward pass ────────────────────────────────────────────
 
-print("── MolecularGINE ────────────────────────────────────────")
+print("MolecularGINE")
 gine = MolecularGINE.build(
     in_channels=7,
     edge_dim=7,

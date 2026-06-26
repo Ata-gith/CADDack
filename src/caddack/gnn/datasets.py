@@ -3,6 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, List, Sequence, Tuple
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+ATOM_FEAT_DIM = 7  # len(_atom_features) output
+BOND_FEAT_DIM = 7  # len(_bond_features) output
+
 
 @dataclass
 class GraphArrays:
@@ -102,7 +109,7 @@ def to_pyg_data(graph: GraphArrays, y: float | int | None = None):
         edge_attr = torch.tensor(graph.edge_features, dtype=torch.float)
     else:
         edge_index = torch.empty((2, 0), dtype=torch.long)
-        edge_attr = torch.empty((0, 7), dtype=torch.float)
+        edge_attr = torch.empty((0, BOND_FEAT_DIM), dtype=torch.float)
 
     data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
     if y is not None:
@@ -114,7 +121,16 @@ def build_pyg_dataset(smiles: Sequence[str], targets: Sequence[float | int]):
     if len(smiles) != len(targets):
         raise ValueError("smiles and targets must have equal length")
     dataset = []
-    for s, y in zip(smiles, targets):
-        graph = smiles_to_graph_arrays(s)
-        dataset.append(to_pyg_data(graph, y=y))
+    n_skipped = 0
+    for i, (s, y) in enumerate(zip(smiles, targets)):
+        try:
+            graph = smiles_to_graph_arrays(s)
+            dataset.append(to_pyg_data(graph, y=y))
+        except (ValueError, ImportError) as exc:
+            if isinstance(exc, ImportError):
+                raise
+            n_skipped += 1
+            logger.warning("Skipping index %d (invalid SMILES %r): %s", i, s, exc)
+    if n_skipped:
+        logger.warning("Dropped %d/%d molecules during dataset build", n_skipped, len(smiles))
     return dataset

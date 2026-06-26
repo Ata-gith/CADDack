@@ -144,18 +144,19 @@ def elbo_loss(
     log_var,
     y,
     kl: "torch.Tensor",
-    n_train: int,
+    n_batches: int,
     kl_weight: float = 1.0,
     aleatoric: bool = True,
 ) -> "torch.Tensor":
-    """ELBO = E_q[NLL] + beta * KL / N_train.
+    """ELBO minibatch estimator (Blundell et al. 2015, uniform 1/M weighting).
 
-    Heteroscedastic Gaussian NLL: 0.5 * mean[exp(-s)*(y-mu)^2 + s], s = log_var.
-    Falls back to MSE when aleatoric=False.
+    Per batch: NLL_batch_mean + beta * KL / M, M = n_batches per epoch.
+    Summed over an epoch the KL term contributes exactly KL once.
+    NLL is a per-example mean; KL/M is the per-batch share of the dataset KL.
     """
     torch, _, F = _require_torch()
     if aleatoric:
         nll = 0.5 * (torch.exp(-log_var) * (y - mu).pow(2) + log_var).mean()
     else:
         nll = F.mse_loss(mu, y)
-    return nll + kl_weight * kl / max(n_train, 1)
+    return nll + kl_weight * kl / max(n_batches, 1)
