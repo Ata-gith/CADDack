@@ -65,7 +65,7 @@ print()
 
 # ── 2. Build the model ────────────────────────────────────────────────────────
 
-print("── Building FusionAffinityNet ───────────────────────────")
+print("Building FusionAffinityNet")
 model = FusionAffinityNet.build(
     ligand_in_channels=7,
     ligand_edge_dim=7,
@@ -84,7 +84,7 @@ print()
 
 # ── 3. Single forward pass → (mu, log_var) ───────────────────────────────────
 
-print("── Single forward pass ──────────────────────────────────")
+print("Single forward pass")
 
 def build_lig(ex: ComplexExample):
     g = smiles_to_graph_arrays(ex.ligand_smiles)
@@ -124,7 +124,7 @@ print()
 
 # ── 5. Quick training run ─────────────────────────────────────────────────────
 
-print("── Training for 5 epochs (synthetic data) ───────────────")
+print("Training for 5 epochs (synthetic data)")
 with tempfile.TemporaryDirectory() as outdir:
     metrics = train_fusion_from_complexes(
         complexes=complexes,

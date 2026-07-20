@@ -275,6 +275,8 @@ def train_fusion_from_complexes(
     )
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
+
+    n_batches = len(train_loader)
     model.train()
     for epoch in range(epochs):
         beta = kl_weight * min(1.0, (epoch + 1) / max(kl_warmup, 1))
@@ -283,7 +285,7 @@ def train_fusion_from_complexes(
             mu, log_var = model(lig_batch, geo_batch)
             y = geo_batch.y.view(-1)
             kl = model.kl()
-            loss = elbo_loss(mu, log_var, y, kl, n_train=n_train,
+            loss = elbo_loss(mu, log_var, y, kl, n_batches=n_batches,
                              kl_weight=beta, aleatoric=not no_aleatoric)
             loss.backward()
             optimizer.step()

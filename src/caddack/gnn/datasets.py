@@ -4,6 +4,13 @@ import warnings
 from dataclasses import dataclass
 from typing import Iterable, List, Sequence, Tuple
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+ATOM_FEAT_DIM = 7  # len(_atom_features) output
+BOND_FEAT_DIM = 7  # len(_bond_features) output
+
 
 @dataclass
 class GraphArrays:
@@ -103,7 +110,7 @@ def to_pyg_data(graph: GraphArrays, y: float | int | None = None):
         edge_attr = torch.tensor(graph.edge_features, dtype=torch.float)
     else:
         edge_index = torch.empty((2, 0), dtype=torch.long)
-        edge_attr = torch.empty((0, 7), dtype=torch.float)
+        edge_attr = torch.empty((0, BOND_FEAT_DIM), dtype=torch.float)
 
     data = Data(x=x, edge_index=edge_index, edge_attr=edge_attr)
     if y is not None:

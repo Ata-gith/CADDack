@@ -17,7 +17,7 @@ NUM_DESC = ["MolWt","LogP","TPSA","NumHBD","NumHBA","NumRotBonds"]
 
 
 def add_cli(subparsers):
-    p = subparsers.add_parser("train-qsar", help="Train baseline QSAR on Parquet features")
+    p = subparsers.add_parser("qsar-train", help="Train baseline QSAR on Parquet features")
     p.add_argument("--parquet", required=True, help="Input features parquet")
     p.add_argument("--target", required=True, help="Target column name")
     p.add_argument("--task", choices=["regression","classification"], default=None, help="If omitted, auto-detect")
