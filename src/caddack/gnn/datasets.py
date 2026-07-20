@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 from typing import Iterable, List, Sequence, Tuple
 
@@ -110,11 +111,35 @@ def to_pyg_data(graph: GraphArrays, y: float | int | None = None):
     return data
 
 
-def build_pyg_dataset(smiles: Sequence[str], targets: Sequence[float | int]):
+def build_pyg_dataset(
+    smiles: Sequence[str],
+    targets: Sequence[float | int],
+    skip_invalid: bool = True,
+):
+    """Build a list of torch-geometric ``Data`` objects from SMILES + targets.
+
+    Real-world datasets (e.g. MoleculeNet) contain a handful of SMILES that
+    RDKit cannot parse. When ``skip_invalid`` is True (default) such rows are
+    dropped with a warning instead of raising, so a single bad row does not
+    abort training. Set ``skip_invalid=False`` to restore strict behaviour.
+    """
     if len(smiles) != len(targets):
         raise ValueError("smiles and targets must have equal length")
     dataset = []
+    n_skipped = 0
     for s, y in zip(smiles, targets):
-        graph = smiles_to_graph_arrays(s)
+        try:
+            graph = smiles_to_graph_arrays(s)
+        except ValueError:
+            if not skip_invalid:
+                raise
+            n_skipped += 1
+            continue
         dataset.append(to_pyg_data(graph, y=y))
+    if n_skipped:
+        warnings.warn(
+            f"build_pyg_dataset skipped {n_skipped} unparseable SMILES "
+            f"out of {len(smiles)}.",
+            stacklevel=2,
+        )
     return dataset

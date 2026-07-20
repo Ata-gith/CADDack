@@ -364,6 +364,35 @@ Generates synthetic complexes, runs three benchmark sections:
    - GINE-only (2D message passing, no geometry, 20 epochs)
    - FusionAffinityNet (full two-tower)
 
+> Note: this benchmark uses **synthetic** complexes, so it validates throughput,
+> the uncertainty decomposition, and the training loop — not predictive quality.
+> Meaningful accuracy/calibration for the fusion model requires a real dataset
+> such as PDBbind (see `train-fusion`).
+
+### `benchmark-molnet` — 2D GNN benchmarks on real datasets
+
+Benchmarks `MolecularGCN` / `MolecularGINE` (via `train_from_csv`) on four standard
+[MoleculeNet](https://moleculenet.org/) datasets, downloaded automatically:
+
+```bash
+python scripts/benchmark_molnet.py --download \
+  --data-dir /tmp/molnet --outdir /tmp/molnet_runs \
+  --epochs 40 --model gine --json-out results/molnet_gine.json
+```
+
+Reference results (GINE vs GCN, random 80/20 split, 40 epochs, hidden=128, 3 layers):
+
+| Dataset | Task | N | GINE | GCN |
+|---|---|---|---|---|
+| ESOL (solubility) | regression | 1,128 | MAE 0.76 / R² 0.81 | MAE 1.06 / R² 0.60 |
+| FreeSolv (hydration ΔG) | regression | 642 | MAE 1.73 / R² 0.60 | MAE 2.14 / R² 0.36 |
+| BBBP (BBB penetration) | classification | 2,039 | AUC 0.836 / Acc 0.84 | AUC 0.772 / Acc 0.78 |
+| BACE (β-secretase) | classification | 1,513 | AUC 0.722 / Acc 0.64 | AUC 0.708 / Acc 0.64 |
+
+GINE outperforms GCN on every dataset — as expected, since GINE consumes bond
+features that GCN ignores. Numbers use a random split (MoleculeNet's official
+scaffold split is harder; use `caddack.qsar.split.scaffold_split` for that).
+
 ---
 
 ## Changes from the original `gpt` branch

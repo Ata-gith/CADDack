@@ -25,6 +25,33 @@ def test_gnn_dataset_smiles_to_graph_arrays():
     assert len(g.edge_index) == 4         # 2 bonds × 2 directed edges
 
 
+@pytest.mark.skipif(
+    not (rdkit_available and torch_available), reason="RDKit + torch required"
+)
+def test_build_pyg_dataset_skips_invalid_smiles():
+    """A single unparseable SMILES must not abort the whole dataset build."""
+    from caddack.gnn.datasets import build_pyg_dataset
+
+    smiles = ["CCO", "not_a_smiles", "c1ccccc1"]
+    targets = [1.0, 2.0, 3.0]
+
+    with pytest.warns(UserWarning, match="skipped 1 unparseable"):
+        dataset = build_pyg_dataset(smiles, targets, skip_invalid=True)
+    assert len(dataset) == 2  # the invalid row is dropped
+    # targets stay aligned with the surviving molecules
+    assert [float(d.y.item()) for d in dataset] == [1.0, 3.0]
+
+
+@pytest.mark.skipif(
+    not (rdkit_available and torch_available), reason="RDKit + torch required"
+)
+def test_build_pyg_dataset_strict_raises():
+    from caddack.gnn.datasets import build_pyg_dataset
+
+    with pytest.raises(ValueError, match="Invalid SMILES"):
+        build_pyg_dataset(["CCO", "not_a_smiles"], [1.0, 2.0], skip_invalid=False)
+
+
 # --- gnn.train ---
 
 @pytest.mark.skipif(torch_available, reason="torch is installed; absence test not applicable")
