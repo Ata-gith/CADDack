@@ -124,9 +124,12 @@ def mol_to_ecfp_bits(
             on = set()
         return {f"ECFP{radius}_{i}": int(i in on) for i in range(n_bits)}
 
-    # legacy fallback
+    # legacy fallback — useChirality=True to match the generator path above,
+    # so bit meanings are identical regardless of which RDKit API is present
     _, _, rdMolDescriptors = _require_rdkit()
-    fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(m, radius=radius, nBits=n_bits)
+    fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(
+        m, radius=radius, nBits=n_bits, useChirality=True
+    )
     return {f"ECFP{radius}_{i}": int(fp.GetBit(i)) for i in range(n_bits)}
 
 

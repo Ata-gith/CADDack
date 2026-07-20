@@ -399,6 +399,30 @@ scaffold split is harder; use `caddack.qsar.split.scaffold_split` for that).
 
 ### Bug fixes
 
+**Correctness audit of `main` (GNN / geometry / QSAR / fetch)**
+- `bayes.elbo_loss`: KL is scaled by the dataset size `n_train`, not the batch
+  count — dividing by batches over-weighted the KL by ~`batch_size`, collapsing
+  the posterior toward the prior. Also restored the parameter name the tests use.
+- `geometry.load_ligand` / `load_complex`: `.mol2` now uses `Chem.MolFromMol2File`
+  (Tripos MOL2) instead of the MDL-molfile reader, which silently returned `None`
+  and dropped every `.mol2` complex.
+- `geometry._element_from_name`: column-aware element inference for blank element
+  columns — `" CA "`→carbon (was calcium), `" ND1"`→N, `" OD1"`→O (were carbon).
+- `gnn.train._prepare_frame`: `task="classification"` with a continuous target and
+  no `positive_threshold` now raises a clear error instead of training on floats.
+- `train_from_csv` / `qsar-train`: `roc_auc` is omitted (not crashed) on a
+  single-class test split.
+- `datasets.smiles_to_graph_arrays`: 0-atom mols (e.g. the empty string) are
+  rejected so `skip_invalid` drops them instead of emitting a malformed tensor.
+- `models.predict_with_uncertainty`: no longer returns `NaN` at `n_samples=1`
+  (biased variance) and restores the caller's train/eval mode.
+- `fetch`: `--min-pchembl` is now applied (was ignored); censored IC50s
+  (`<`, `<=`) are excluded from the pIC50 median; HTTP retries use backoff.
+- `qsar-descriptors`: featurizes without silently dropping rows on the `pIC50`
+  column. `qsar-train --max-features` accepts numeric values.
+- Fusion tests no longer require `torch_scatter` (the tower has pure-PyTorch
+  fallbacks), so they actually run in scatter-less environments.
+
 **`tests/test_fetch_structures.py`**
 - The PDB assertion accessed `data["pdb"]["1CRN"]` as a bare string; it is a dict
   `{"path": ...}`. Fixed to `data["pdb"]["1CRN"]["path"].endswith(...)`.

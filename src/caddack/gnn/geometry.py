@@ -30,10 +30,28 @@ class PDBAtom:
     atomic_num: int
 
 
-def _element_from_name(name: str) -> str:
-    """Infer element from PDB atom name when the element column is blank."""
-    stripped = name.strip().lstrip("0123456789")
-    return stripped[:2].upper() if len(stripped) >= 2 else stripped[:1].upper()
+def _element_from_name(raw_name: str) -> str:
+    """Infer element from a PDB atom-name field when the element column is blank.
+
+    Uses the PDB column convention (name occupies columns 13-16): a genuine
+    two-letter element symbol (FE, ZN, CL, ...) is left-justified so the field's
+    first character is a letter, whereas a single-letter element is
+    right-justified in column 14 so the field starts with a space (or digit).
+    This disambiguates ``" CA "`` (C-alpha → carbon) from ``"CA  "`` (calcium),
+    and maps ``" ND1"`` → nitrogen, ``" OD1"`` → oxygen, ``" SD "`` → sulfur.
+
+    Must be called with the RAW 4-char field (``line[12:16]``), not a stripped
+    name, or the column information is lost.
+    """
+    if not raw_name:
+        return ""
+    # A two-letter element symbol only when column 13 (index 0) is itself a letter.
+    if raw_name[0] not in " 0123456789":
+        cand = raw_name[:2].strip().upper()
+        if cand in _ELEMENT_Z:
+            return cand
+    stripped = raw_name.strip().lstrip("0123456789")
+    return stripped[:1].upper() if stripped else ""
 
 
 def parse_pdb_atoms(pdb_path: str | Path) -> List[PDBAtom]:
@@ -70,7 +88,8 @@ def parse_pdb_atoms(pdb_path: str | Path) -> List[PDBAtom]:
             continue
 
         try:
-            name = line[12:16].strip()
+            raw_name = line[12:16]              # keep columns for element inference
+            name = raw_name.strip()
             resname = line[17:20].strip()
             chain = line[21:22].strip()
             resseq = int(line[22:26].strip() or "0")
@@ -78,7 +97,7 @@ def parse_pdb_atoms(pdb_path: str | Path) -> List[PDBAtom]:
             y = float(line[38:46])
             z = float(line[46:54])
             raw_elem = line[76:78].strip().upper() if len(line) > 76 else ""
-            element = raw_elem if raw_elem else _element_from_name(name)
+            element = raw_elem if raw_elem else _element_from_name(raw_name)
             atomic_num = _ELEMENT_Z.get(element, _DEFAULT_Z)
         except (ValueError, IndexError):
             continue
@@ -120,8 +139,10 @@ def load_ligand(ligand_path: str | Path) -> Optional[List[PDBAtom]]:
         if suffix == ".sdf":
             supplier = Chem.SDMolSupplier(str(path), removeHs=True)
             mol = next((m for m in supplier if m is not None), None)
-        elif suffix in (".mol2", ".mol"):
-            mol = Chem.MolFromMolFile(str(path), removeHs=True)
+        elif suffix == ".mol2":
+            mol = Chem.MolFromMol2File(str(path), removeHs=True)  # Tripos MOL2
+        elif suffix == ".mol":
+            mol = Chem.MolFromMolFile(str(path), removeHs=True)   # MDL molfile
         else:
             return None
     except Exception:
@@ -230,11 +251,14 @@ def load_complex(
     try:
         Chem, _ = _require_rdkit()
         path = Path(ligand_path)
-        if path.suffix.lower() == ".sdf":
+        suffix = path.suffix.lower()
+        if suffix == ".sdf":
             supplier = Chem.SDMolSupplier(str(path), removeHs=True)
             mol = next((m for m in supplier if m is not None), None)
+        elif suffix == ".mol2":
+            mol = Chem.MolFromMol2File(str(path), removeHs=True)  # Tripos MOL2
         else:
-            mol = Chem.MolFromMolFile(str(path), removeHs=True)
+            mol = Chem.MolFromMolFile(str(path), removeHs=True)   # MDL molfile
         if mol is not None:
             smiles = Chem.MolToSmiles(mol, canonical=True)
     except Exception:

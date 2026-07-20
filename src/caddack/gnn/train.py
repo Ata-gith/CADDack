@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import warnings
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
@@ -36,8 +37,22 @@ def _prepare_frame(df, smiles_col: str, target_col: str, task: str, positive_thr
         raise ValueError(f"Missing required columns {smiles_col!r} and/or {target_col!r}")
 
     data_df = df[[smiles_col, target_col]].dropna().copy()
-    if task == "classification" and positive_threshold is not None:
-        data_df[target_col] = (data_df[target_col].astype(float) >= float(positive_threshold)).astype(int)
+    if task == "classification":
+        if positive_threshold is not None:
+            data_df[target_col] = (
+                data_df[target_col].astype(float) >= float(positive_threshold)
+            ).astype(int)
+        else:
+            # No threshold: the column must already be binary {0, 1}, otherwise
+            # BCE/AUC downstream would silently train on / crash against floats.
+            uniq = set(data_df[target_col].dropna().unique().tolist())
+            if not uniq.issubset({0, 1, 0.0, 1.0}):
+                raise ValueError(
+                    f"task='classification' but target {target_col!r} is not binary "
+                    f"(found {sorted(uniq)[:5]}...). Pass positive_threshold to binarize "
+                    f"a continuous column, or use task='regression'."
+                )
+            data_df[target_col] = data_df[target_col].astype(int)
     return data_df
 
 
@@ -126,10 +141,17 @@ def train_from_csv(
 
     if task == "classification":
         labels = [1 if p >= 0.5 else 0 for p in preds]
-        metrics = {
-            "auc_roc": float(roc_auc_score(truths, preds)),
-            "accuracy": float(accuracy_score(truths, labels)),
-        }
+        metrics = {"accuracy": float(accuracy_score(truths, labels))}
+        # roc_auc is undefined when the test set contains a single class
+        if len(set(truths)) >= 2:
+            metrics["auc_roc"] = float(roc_auc_score(truths, preds))
+        else:
+            warnings.warn(
+                "Test set has a single class; auc_roc is undefined and omitted. "
+                "Use a larger or stratified split.",
+                stacklevel=2,
+            )
+            metrics["auc_roc"] = None
     else:
         metrics = {
             "mae": float(mean_absolute_error(truths, preds)),
@@ -276,7 +298,6 @@ def train_fusion_from_complexes(
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
 
-    n_batches = len(train_loader)
     model.train()
     for epoch in range(epochs):
         beta = kl_weight * min(1.0, (epoch + 1) / max(kl_warmup, 1))
@@ -285,7 +306,9 @@ def train_fusion_from_complexes(
             mu, log_var = model(lig_batch, geo_batch)
             y = geo_batch.y.view(-1)
             kl = model.kl()
-            loss = elbo_loss(mu, log_var, y, kl, n_batches=n_batches,
+            # KL is scaled by the dataset size N (n_train), not the batch count,
+            # so the per-example NLL and KL stay on the same scale.
+            loss = elbo_loss(mu, log_var, y, kl, n_train=n_train,
                              kl_weight=beta, aleatoric=not no_aleatoric)
             loss.backward()
             optimizer.step()

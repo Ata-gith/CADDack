@@ -32,7 +32,12 @@ def run(args):
         sys.exit(2)
 
     df = pd.read_csv(inp)
-    feats = featurize_dataframe(df, smiles_col=args.smiles_col, radius=args.radius, n_bits=args.bits)
+    # target_col=None: this command only featurizes; it must not silently drop
+    # rows based on an assay column (e.g. pIC50), which is the default target.
+    feats = featurize_dataframe(
+        df, smiles_col=args.smiles_col, radius=args.radius, n_bits=args.bits,
+        target_col=None,
+    )
 
     if args.drop_errors and "__error" in feats.columns:
         feats = feats[feats["__error"] != "invalid_smiles"]

@@ -71,6 +71,10 @@ def smiles_to_graph_arrays(smiles: str) -> GraphArrays:
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
         raise ValueError(f"Invalid SMILES: {smiles!r}")
+    if mol.GetNumAtoms() == 0:
+        # e.g. the empty string parses to a valid 0-atom Mol; reject it so
+        # build_pyg_dataset's skip_invalid path can drop the row cleanly.
+        raise ValueError(f"SMILES has no atoms: {smiles!r}")
 
     node_features = [_atom_features(atom) for atom in mol.GetAtoms()]
 

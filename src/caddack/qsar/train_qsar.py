@@ -59,13 +59,28 @@ def _metrics_reg(y_true, y_pred) -> dict:
     }
 
 
+def _parse_max_features(value: str):
+    """Interpret --max-features: keep sklearn keywords, coerce numerics."""
+    if value in ("auto", "sqrt", "log2"):
+        return "sqrt" if value == "auto" else value
+    try:
+        f = float(value)
+        return int(f) if f.is_integer() and f > 1 else f
+    except ValueError:
+        return value  # let sklearn raise a clear error on a bad keyword
+
+
 def _metrics_clf(y_true, y_prob, y_pred) -> dict:
     out = {
-        "auc_roc": float(roc_auc_score(y_true, y_prob)),
         "auc_pr": float(average_precision_score(y_true, y_prob)),
         "f1": float(f1_score(y_true, y_pred)),
         "acc": float(accuracy_score(y_true, y_pred)),
     }
+    # roc_auc is undefined when the test set has a single class
+    if len(np.unique(y_true)) >= 2:
+        out["auc_roc"] = float(roc_auc_score(y_true, y_prob))
+    else:
+        out["auc_roc"] = None
     return out
 
 
@@ -118,8 +133,7 @@ def run(args):
             n_estimators=args.n_estimators,
             random_state=args.seed,
             n_jobs=-1,
-
-            max_features="sqrt" if args.max_features == "auto" else args.max_features,
+            max_features=_parse_max_features(args.max_features),
         )
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
@@ -143,7 +157,7 @@ def run(args):
             n_jobs=-1,
             class_weight="balanced",
             # for classifier, sklearn default is "sqrt"
-            max_features="sqrt" if args.max_features == "auto" else args.max_features,
+            max_features=_parse_max_features(args.max_features),
         )
         model.fit(X_train, y_train)
 

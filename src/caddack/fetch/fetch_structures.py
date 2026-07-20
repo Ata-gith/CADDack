@@ -6,6 +6,7 @@ import json
 import math
 import statistics as stats
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -52,7 +53,7 @@ def _read_ids_file(path: str | None) -> list[str]:
 # -------------------- HTTP --------------------
 def _get(url, *, timeout, stream=False, headers=None, attempts=3):
     last = None
-    for _ in range(attempts):
+    for i in range(attempts):
         try:
             return requests.get(
                 url,
@@ -62,6 +63,8 @@ def _get(url, *, timeout, stream=False, headers=None, attempts=3):
             )
         except requests.RequestException as e:
             last = e
+            if i < attempts - 1:
+                time.sleep(2 ** i)  # exponential backoff: 1s, 2s, 4s, ...
     raise last
 
 # -------------------- ChEMBL helpers --------------------
@@ -105,7 +108,9 @@ def fetch_target_pic50s(target_chembl_id: str, needed: int = 50, timeout: float 
                     val = None
             if val is None:
                 rel = (a.get("relation") or a.get("standard_relation") or "=").strip()
-                if rel in ("=", "~", "<", "<="):
+                # only exact/approx values; censored (<, <=, >, >=) are not
+                # true potencies and would bias the median
+                if rel in ("=", "~"):
                     units = a.get("standard_units")
                     v = a.get("standard_value")
                     if units and v is not None:
@@ -195,7 +200,8 @@ def fetch_chembl_pIC50(chembl_id: str, timeout: float = 20.0) -> dict:
             if stype != "IC50":
                 continue
             rel = (a.get("standard_relation") or a.get("relation") or "=").strip()
-            if rel not in ("=", "~", "<", "<="):
+            # exclude censored measurements (<, <=, >, >=): not exact potencies
+            if rel not in ("=", "~"):
                 continue
             units = a.get("standard_units")
             val = a.get("standard_value")
@@ -293,6 +299,9 @@ def run(args):
     auto_cids: list[tuple[str, float]] = []
     if args.chembl_target:
         pic50_map = fetch_target_pic50s(args.chembl_target, needed=args.min_n)
+        # Optional potency filter (was previously registered but ignored)
+        if args.min_pchembl is not None:
+            pic50_map = {m: v for m, v in pic50_map.items() if v >= args.min_pchembl}
         # Order by strongest (highest pIC50) then truncate to min_n
         auto_cids = sorted(pic50_map.items(), key=lambda kv: kv[1], reverse=True)
         auto_cids = auto_cids[: args.min_n]

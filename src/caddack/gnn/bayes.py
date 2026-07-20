@@ -80,6 +80,8 @@ class BayesianLinear:
 
                 def _kl_gauss(mu, sigma):
                     # KL = sum [ log(prior/sigma) + (sigma² + mu²)/(2*prior²) - 0.5 ]
+                    # clamp sigma away from 0 so log() never underflows to -inf
+                    sigma = sigma.clamp_min(1e-12)
                     return (
                         prior_log_s
                         - sigma.log()
@@ -144,19 +146,24 @@ def elbo_loss(
     log_var,
     y,
     kl: "torch.Tensor",
-    n_batches: int,
+    n_train: int,
     kl_weight: float = 1.0,
     aleatoric: bool = True,
 ) -> "torch.Tensor":
-    """ELBO minibatch estimator (Blundell et al. 2015, uniform 1/M weighting).
+    """Per-example negative ELBO (Blundell et al. 2015).
 
-    Per batch: NLL_batch_mean + beta * KL / M, M = n_batches per epoch.
-    Summed over an epoch the KL term contributes exactly KL once.
-    NLL is a per-example mean; KL/M is the per-batch share of the dataset KL.
+    The NLL is a per-example mean over the batch, so the dataset-level KL must be
+    divided by the number of training examples ``n_train`` (N) — not the number
+    of batches — to keep both terms on the same per-example scale::
+
+        loss = mean_batch(NLL) + kl_weight * KL / N
+
+    Dividing by the batch count instead would over-weight the KL by ~batch_size,
+    collapsing the posterior toward the prior.
     """
     torch, _, F = _require_torch()
     if aleatoric:
         nll = 0.5 * (torch.exp(-log_var) * (y - mu).pow(2) + log_var).mean()
     else:
         nll = F.mse_loss(mu, y)
-    return nll + kl_weight * kl / max(n_batches, 1)
+    return nll + kl_weight * kl / max(n_train, 1)
