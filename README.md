@@ -140,6 +140,41 @@ Standardisation uses train-set statistics only and is undone at prediction time;
 `y_mean`/`y_std` are saved in `config.json`. Correlation is unchanged, as expected — the
 fix corrects offset and scale, not ranking.
 
+#### KL tempering
+
+The Bayesian head carries 98,688 weight posteriors but trains on 2,959 complexes, so the
+correctly-scaled ELBO (`KL/n_train`) is ~98% KL and ~2% data fit. Tempering with
+`--kl-weight` rebalances it. Same scaffold split, 20 epochs:
+
+| `kl_weight` | MAE | RMSE | R² | Pearson r | Coverage 1σ/2σ |
+|---|---|---|---|---|---|
+| 1.0 (untempered) | 1.48 | 1.78 | 0.210 | 0.582 | 68% / 96% |
+| 0.1 | 1.33 | 1.70 | 0.280 | 0.577 | 69% / 95% |
+| 0.02 | 1.37 | 1.68 | 0.294 | 0.572 | 66% / 96% |
+| **0.01** | **1.32** | **1.66** | **0.307** | 0.571 | 67% / 94% |
+
+The gain is real but it is *not* the gain we predicted. R² rises 46% and MAE falls to 1.32
+(against a 1.63 mean-predictor), while **Pearson r does not improve at all** — it drifts
+from 0.582 to 0.571. What tempering fixes is the last of the miscalibration, not the
+ranking:
+
+| `kl_weight` | R² | r² (ceiling for a linear fit) | shortfall |
+|---|---|---|---|
+| 1.0 | 0.210 | 0.339 | 0.129 |
+| 0.01 | 0.307 | 0.326 | **0.019** |
+
+R² now sits at 94% of what its own correlation permits, so there is almost nothing left to
+win from calibration or regularisation. Calibration also survives the change — coverage
+stays near the ideal 68% / 95% — so the trade-off that tempering usually costs did not
+materialise here.
+
+The practical read: use `--kl-weight 0.01–0.1` (most of the effect is simply *leaving* 1.0;
+differences within that range are small). And the open problem is now precisely located —
+**ranking is a representation limit, not an optimisation one.** Neither more data, more
+epochs, standardisation, nor tempering moves r ≈ 0.58; that ceiling belongs to what the
+towers can see. The geometry tower currently encodes only atomic number and interatomic
+distance — no hydrogen bonds, hydrophobic contacts, or residue identity.
+
 ### Synthetic speed / calibration
 
 ```bash
