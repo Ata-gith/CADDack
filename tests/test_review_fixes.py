@@ -123,3 +123,41 @@ def test_predict_restores_training_mode():
     m.train()
     m.predict_with_uncertainty(lig, geo, n_samples=2)
     assert m.training is True  # mode restored after the eval() inside
+
+
+# --- train: target standardisation removes the affinity offset ---
+
+def test_standardize_target_config_roundtrip(tmp_path):
+    """train_fusion_from_complexes records y_mean/y_std so predictions rescale."""
+    pytest.importorskip("torch")
+    pytest.importorskip("torch_geometric")
+    pytest.importorskip("rdkit")
+    import json
+    from caddack.gnn.geometry import GeometryRecord, ComplexExample
+    from caddack.gnn.train import train_fusion_from_complexes
+
+    def mk(smiles, aff):
+        n_lig, n_pocket = 6, 12
+        geo = GeometryRecord(
+            atomic_nums=[6] * (n_lig + n_pocket),
+            positions=[(float(i) * 0.5, 0.0, 0.0) for i in range(n_lig + n_pocket)],
+            n_ligand=n_lig, n_pocket=n_pocket)
+        return ComplexExample(pdb_id="T", affinity=aff,
+                              ligand_smiles=smiles, geo=geo)
+
+    # affinities centred far from zero: standardisation must capture the offset
+    smis = ["CCO", "c1ccccc1", "CCN", "CCC", "CCCC", "CCOC", "c1ccncc1", "CCCl"]
+    complexes = [mk(s, 6.0 + 0.5 * i) for i, s in enumerate(smis)]
+
+    out = tmp_path / "fusion"
+    train_fusion_from_complexes(
+        complexes=complexes, outdir=str(out), hidden_channels=16,
+        num_gine_layers=1, num_geo_interactions=1, num_rbf=8, cutoff=5.0,
+        bayesian_hidden=[16], epochs=2, batch_size=4, test_size=0.25,
+        split="random", mc_samples_eval=3)
+
+    cfg = json.loads((out / "config.json").read_text())
+    assert cfg["standardize_target"] is True
+    # y_mean should sit in the affinity range, not at 0
+    assert 5.0 < cfg["y_mean"] < 11.0
+    assert cfg["y_std"] > 0

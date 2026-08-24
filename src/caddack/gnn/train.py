@@ -208,11 +208,17 @@ def train_fusion_from_complexes(
     split: str = "scaffold",
     mc_samples_eval: int = 30,
     no_aleatoric: bool = False,
+    standardize_target: bool = True,
 ) -> Dict[str, float]:
     """Train FusionAffinityNet on a list of ComplexExample objects.
 
     Uses scaffold split (via ligand SMILES) when available, else random split.
     Saves model.pt, metrics.json, and config.json to `outdir`.
+
+    ``standardize_target`` z-scores the affinity with train-set statistics and
+    rescales predictions back afterwards. This removes a systematic offset that
+    otherwise appears because the Bayesian head is regularised toward a zero-mean
+    prior; ``y_mean``/``y_std`` are recorded in ``config.json`` for inference.
     """
     torch, F, Data, DataLoader, mean_absolute_error, r2_score = _require_fusion_deps()
     from caddack.gnn.datasets import smiles_to_graph_arrays, to_pyg_data
@@ -253,6 +259,18 @@ def train_fusion_from_complexes(
     train_examples = [complexes_to_use[i] for i in train_idx]
     test_examples = [complexes_to_use[i] for i in test_idx]
 
+    # Standardise the target using TRAIN statistics only (never test — that leaks).
+    # The Bayesian head is regularised toward a N(0, prior_sigma) prior, so asking it
+    # to emit raw affinities (mean ~6.4) leaves a systematic offset; predicting a
+    # zero-mean, unit-variance target and rescaling afterwards removes it.
+    if standardize_target:
+        _affs = [float(ex.affinity) for ex in train_examples]
+        y_mean = float(sum(_affs) / len(_affs))
+        _var = sum((a - y_mean) ** 2 for a in _affs) / max(len(_affs) - 1, 1)
+        y_std = float(_var ** 0.5) or 1.0
+    else:
+        y_mean, y_std = 0.0, 1.0
+
     def make_pairs(examples):
         pairs = []
         for ex in examples:
@@ -260,7 +278,7 @@ def train_fusion_from_complexes(
             if lig is None:
                 continue
             geo = _build_geo_pyg(ex)
-            geo.y = torch.tensor([ex.affinity], dtype=torch.float)
+            geo.y = torch.tensor([(float(ex.affinity) - y_mean) / y_std], dtype=torch.float)
             pairs.append((lig, geo))
         return pairs
 
@@ -313,7 +331,7 @@ def train_fusion_from_complexes(
             loss.backward()
             optimizer.step()
 
-    # Evaluation (MC sampling)
+    # Evaluation (MC sampling); predictions are rescaled back to affinity units
     model.eval()
     all_preds, all_truths = [], []
     with torch.no_grad():
@@ -321,8 +339,10 @@ def train_fusion_from_complexes(
             pred_mean, _, _ = model.predict_with_uncertainty(
                 lig_batch, geo_batch, n_samples=mc_samples_eval
             )
-            all_preds.extend(pred_mean.cpu().numpy().tolist())
-            all_truths.extend(geo_batch.y.view(-1).cpu().numpy().tolist())
+            all_preds.extend((pred_mean.cpu().numpy() * y_std + y_mean).tolist())
+            all_truths.extend(
+                (geo_batch.y.view(-1).cpu().numpy() * y_std + y_mean).tolist()
+            )
 
     metrics = {
         "mae": float(mean_absolute_error(all_truths, all_preds)),
@@ -346,6 +366,10 @@ def train_fusion_from_complexes(
         "prior_sigma": prior_sigma,
         "ligand_in_channels": ligand_in_channels,
         "ligand_edge_dim": ligand_edge_dim,
+        # target standardisation: affinity = y_mean + y_std * model_output
+        "standardize_target": standardize_target,
+        "y_mean": y_mean,
+        "y_std": y_std,
     }
     (outdir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
 

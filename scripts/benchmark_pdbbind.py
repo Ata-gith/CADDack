@@ -169,10 +169,24 @@ def run(args) -> dict:
                     rng.choice(len(train_ex), args.subsample, replace=False)]
     print(f"  split={args.split}  train={len(train_ex)}  test={len(test_ex)}")
 
+    # Standardise the target with TRAIN statistics only (never test — that leaks).
+    # Without this the Bayesian head — regularised toward a zero-mean prior — leaves
+    # a systematic offset in the predictions (~1 pK on the scaffold split), which
+    # destroys R2 even when the ranking is good.
+    train_mean = float(np.mean([e.affinity for e in train_ex]))
+    if args.standardize_target:
+        y_mean = train_mean
+        y_std = float(np.std([e.affinity for e in train_ex], ddof=1)) or 1.0
+    else:
+        y_mean, y_std = 0.0, 1.0
+    print(f"  target standardisation "
+          f"{'on' if args.standardize_target else 'off'}: "
+          f"mean={y_mean:.3f} std={y_std:.3f}")
+
     def make_pair(ex):
         lig = to_pyg_data(smiles_to_graph_arrays(ex.ligand_smiles), y=ex.affinity)
         geo = _build_geo_pyg(ex)
-        geo.y = torch.tensor([ex.affinity], dtype=torch.float)
+        geo.y = torch.tensor([(float(ex.affinity) - y_mean) / y_std], dtype=torch.float)
         return lig, geo
 
     def build_pairs(exs):
@@ -190,7 +204,6 @@ def run(args) -> dict:
 
     train_pairs, test_pairs = build_pairs(train_ex), build_pairs(test_ex)
     n_train = len(train_pairs)
-    train_mean = float(np.mean([e.affinity for e in train_ex]))
     train_loader = DataLoader(train_pairs, batch_size=args.batch_size,
                               shuffle=True, collate_fn=collate)
     test_loader = DataLoader(test_pairs, batch_size=64, shuffle=False,
@@ -246,8 +259,10 @@ def run(args) -> dict:
                                                      n_samples=args.mc_samples)
             preds += m.tolist(); eps += e.tolist(); ale += a.tolist()
             truth += geo_b.y.view(-1).tolist()
-    preds, truth = np.array(preds), np.array(truth)
-    eps, ale = np.array(eps), np.array(ale)
+    # rescale back to affinity units (uncertainties are scale-only, no offset)
+    preds = np.array(preds) * y_std + y_mean
+    truth = np.array(truth) * y_std + y_mean
+    eps, ale = np.array(eps) * y_std, np.array(ale) * y_std
     total_std = np.sqrt(eps ** 2 + ale ** 2)
     metrics = {
         "split": args.split,
@@ -288,6 +303,10 @@ def main():
     ap.add_argument("--kl-warmup", type=int, default=5)
     ap.add_argument("--test-size", type=float, default=0.2)
     ap.add_argument("--mc-samples", type=int, default=30)
+    ap.add_argument("--no-standardize-target", dest="standardize_target",
+                    action="store_false",
+                    help="train on raw affinities instead of z-scored targets")
+    ap.set_defaults(standardize_target=True)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--prefix", default="pdbbind")
     args = ap.parse_args()
