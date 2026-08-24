@@ -110,7 +110,7 @@ Affinity in p*K* units (−log *K*d/*K*i):
 | Refined, 15 ep | core holdout | 3,511 / 188 | **1.28** | **0.47** | 0.69 | 64% / 94% |
 | Refined, 30 ep | core holdout | 3,511 / 188 | 1.34 | 0.42 | **0.73** | 66% / 96% |
 | General, 10 ep | core holdout | 6,000 / 193 | 1.34 | 0.44 | 0.68 | 67% / 96% |
-| Refined, 20 ep | **scaffold** | 2,959 / 740 | 1.59 | −0.04 | 0.60 | 54% / 84% |
+| Refined, 20 ep | **scaffold** | 2,959 / 740 | **1.48** | **0.21** | 0.58 | 68% / 96% |
 | *mean predictor* | — | — | 1.82 | 0.00 | — | — |
 
 Reading these numbers:
@@ -118,11 +118,27 @@ Reading these numbers:
 - The model learns real structure→affinity signal — every run beats the mean-predictor
   baseline, and uncertainty is well calibrated (ideal coverage is 68% / 95%).
 - **Core-holdout numbers are optimistic**: the refined and core sets share many scaffolds.
-- **The scaffold split is the honest generalisation number.** With chemically novel test
-  ligands, R² drops to ≈0 — ranking still works (r = 0.60) but absolute predictions do not
-  transfer. This is the main open weakness.
+- **The scaffold split is the honest generalisation number**, since test ligands are
+  chemically novel. R² = 0.21 there is real but well below the core-holdout figure — the
+  gap between the two is the generalisation cost, and closing it is the main open problem.
 - More epochs sharpen ranking (r 0.69 → 0.73) but not error; more data of lower quality
   (general vs refined) does not help either. The bottleneck is generalisation, not volume.
+
+#### Target standardisation
+
+The scaffold-split numbers above depend on it. Training on raw affinities left a
+systematic **+1.05 pK offset** (predictions averaged 7.41 against a true mean of 6.36),
+because the Bayesian head is regularised toward a zero-mean prior while being asked to
+emit values centred near 6.4. The ranking was fine; the offset destroyed R².
+
+| Scaffold split, 20 epochs | MAE | RMSE | R² | Pearson r | Coverage 1σ/2σ |
+|---|---|---|---|---|---|
+| raw target (`--no-standardize-target`) | 1.59 | 2.04 | −0.04 | 0.60 | 54% / 84% |
+| **z-scored target** (default) | **1.48** | **1.78** | **+0.21** | 0.58 | **68% / 96%** |
+
+Standardisation uses train-set statistics only and is undone at prediction time;
+`y_mean`/`y_std` are saved in `config.json`. Correlation is unchanged, as expected — the
+fix corrects offset and scale, not ranking.
 
 ### Synthetic speed / calibration
 
