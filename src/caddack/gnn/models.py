@@ -271,17 +271,24 @@ class FusionAffinityNet:
 
             def predict_with_uncertainty(self, lig_data, geo_data, n_samples: int = 30):
                 """Return (mean, epistemic_std, aleatoric_std) via MC sampling."""
+                if n_samples < 1:
+                    raise ValueError("n_samples must be >= 1")
+                was_training = self.training
                 self.eval()
-                mus, vars_ = [], []
-                with torch.no_grad():
-                    for _ in range(n_samples):
-                        mu, log_var = self.forward(lig_data, geo_data)
-                        mus.append(mu)
-                        vars_.append(torch.exp(log_var))
+                try:
+                    mus, vars_ = [], []
+                    with torch.no_grad():
+                        for _ in range(n_samples):
+                            mu, log_var = self.forward(lig_data, geo_data)
+                            mus.append(mu)
+                            vars_.append(torch.exp(log_var))
+                finally:
+                    self.train(was_training)  # restore caller's mode
                 mus_t = torch.stack(mus, dim=0)          # [T, B]
                 vars_t = torch.stack(vars_, dim=0)        # [T, B]
                 pred_mean = mus_t.mean(0)
-                epistemic = mus_t.var(0).sqrt()
+                # biased (unbiased=False) so a single sample yields 0, not NaN
+                epistemic = mus_t.var(0, unbiased=False).sqrt()
                 aleatoric = vars_t.mean(0).sqrt()
                 return pred_mean, epistemic, aleatoric
 

@@ -14,7 +14,9 @@ torch_available = importlib.util.find_spec("torch") is not None
 pyg_available = importlib.util.find_spec("torch_geometric") is not None
 scatter_available = importlib.util.find_spec("torch_scatter") is not None
 
-all_gnn_deps = rdkit_available and torch_available and pyg_available and scatter_available
+# torch_scatter is NOT required: the geometry tower falls back to
+# torch_geometric.utils.scatter and a pure-PyTorch radius_graph when it is absent.
+all_gnn_deps = rdkit_available and torch_available and pyg_available
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +255,7 @@ def _make_synthetic_complexes(n: int = 6):
     return complexes
 
 
-@pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit+scatter not installed")
+@pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit not installed")
 def test_fusion_forward_pass():
     import torch
     from torch_geometric.data import Data, Batch
@@ -293,7 +295,7 @@ def test_fusion_forward_pass():
     assert torch.isfinite(log_var).all()
 
 
-@pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit+scatter not installed")
+@pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit not installed")
 def test_fusion_kl_and_backward():
     import torch
     from torch_geometric.data import Data, Batch
@@ -330,7 +332,7 @@ def test_fusion_kl_and_backward():
     loss.backward()
 
 
-@pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit+scatter not installed")
+@pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit not installed")
 def test_fusion_uncertainty_output():
     import torch
     from torch_geometric.data import Data, Batch
@@ -361,7 +363,7 @@ def test_fusion_uncertainty_output():
     assert aleatoric.item() >= 0.0
 
 
-@pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit+scatter not installed")
+@pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit not installed")
 def test_train_fusion_smoke(tmp_path):
     """End-to-end smoke test: 2 epochs on synthetic complexes."""
     from caddack.gnn.train import train_fusion_from_complexes
