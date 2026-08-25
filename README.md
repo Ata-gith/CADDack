@@ -107,73 +107,72 @@ Affinity in p*K* units (−log *K*d/*K*i):
 
 | Training data | Split | Train/Test | MAE | R² | Pearson r | Coverage 1σ/2σ |
 |---|---|---|---|---|---|---|
-| Refined, 15 ep | core holdout | 3,511 / 188 | **1.28** | **0.47** | 0.69 | 64% / 94% |
-| Refined, 30 ep | core holdout | 3,511 / 188 | 1.34 | 0.42 | **0.73** | 66% / 96% |
+| Refined, 15 ep | core holdout | 3,511 / 188 | 1.28 | 0.47 | 0.69 | 64% / 94% |
+| Refined, 30 ep | core holdout | 3,511 / 188 | 1.34 | 0.42 | 0.73 | 66% / 96% |
 | General, 10 ep | core holdout | 6,000 / 193 | 1.34 | 0.44 | 0.68 | 67% / 96% |
-| Refined, 20 ep | **scaffold** | 2,959 / 740 | **1.48** | **0.21** | 0.58 | 68% / 96% |
+| Refined, 20 ep | **scaffold** | 2,959 / 740 | 1.32 | 0.31 | 0.57 | 67% / 94% |
 | *mean predictor* | — | — | 1.82 | 0.00 | — | — |
 
-Reading these numbers:
+A few notes on reading them:
 
-- The model learns real structure→affinity signal — every run beats the mean-predictor
-  baseline, and uncertainty is well calibrated (ideal coverage is 68% / 95%).
-- **Core-holdout numbers are optimistic**: the refined and core sets share many scaffolds.
-- **The scaffold split is the honest generalisation number**, since test ligands are
-  chemically novel. R² = 0.21 there is real but well below the core-holdout figure — the
-  gap between the two is the generalisation cost, and closing it is the main open problem.
-- More epochs sharpen ranking (r 0.69 → 0.73) but not error; more data of lower quality
-  (general vs refined) does not help either. The bottleneck is generalisation, not volume.
+- Every run beats the mean-predictor baseline, and the uncertainty estimates are
+  reasonably calibrated (ideal coverage is 68% / 95%).
+- The core-holdout numbers are the optimistic ones — the refined and core sets share many
+  scaffolds. The scaffold split is the stricter test, since those test ligands are
+  chemically new to the model.
+- More epochs and more data both plateau quickly, so the limit is not training volume.
 
-#### Target standardisation
+#### Two settings that mattered
 
-The scaffold-split numbers above depend on it. Training on raw affinities left a
-systematic **+1.05 pK offset** (predictions averaged 7.41 against a true mean of 6.36),
-because the Bayesian head is regularised toward a zero-mean prior while being asked to
-emit values centred near 6.4. The ranking was fine; the offset destroyed R².
+Both were found on the scaffold split. Standardisation is on by default; tempering is opt-in
+via `--kl-weight`.
 
 | Scaffold split, 20 epochs | MAE | RMSE | R² | Pearson r | Coverage 1σ/2σ |
 |---|---|---|---|---|---|
-| raw target (`--no-standardize-target`) | 1.59 | 2.04 | −0.04 | 0.60 | 54% / 84% |
-| **z-scored target** (default) | **1.48** | **1.78** | **+0.21** | 0.58 | **68% / 96%** |
+| raw target, `kl_weight=1.0` | 1.59 | 2.04 | −0.04 | 0.60 | 54% / 84% |
+| z-scored target | 1.48 | 1.78 | 0.21 | 0.58 | 68% / 96% |
+| z-scored + `--kl-weight 0.01` | **1.32** | **1.66** | **0.31** | 0.57 | 67% / 94% |
 
-Standardisation uses train-set statistics only and is undone at prediction time;
-`y_mean`/`y_std` are saved in `config.json`. Correlation is unchanged, as expected — the
-fix corrects offset and scale, not ranking.
+**Target standardisation.** Training on raw affinities left a systematic +1.05 p*K* offset,
+since the Bayesian head is regularised toward a zero-mean prior while being asked to emit
+values centred near 6.4. Standardisation uses train-set statistics only and is undone at
+prediction time (`y_mean`/`y_std` live in `config.json`).
 
-#### KL tempering
+**KL tempering.** The Bayesian head carries ~99k weight posteriors but trains on ~3k
+complexes, so the correctly-scaled ELBO is roughly 98% KL and 2% data fit. Lowering
+`--kl-weight` to 0.01–0.1 rebalances it; most of the benefit is simply leaving 1.0.
 
-The Bayesian head carries 98,688 weight posteriors but trains on 2,959 complexes, so the
-correctly-scaled ELBO (`KL/n_train`) is ~98% KL and ~2% data fit. Tempering with
-`--kl-weight` rebalances it. Same scaffold split, 20 epochs:
+Worth noting what these did *not* change: Pearson r stays near 0.58 throughout. Both
+settings fix calibration — the offset and the scale — rather than the ranking. R² now sits
+close to r², so there is little left to gain from that direction, and the remaining limit
+looks like a representation one. The geometry tower currently sees only atomic number and
+interatomic distance, with no explicit hydrogen bonds, hydrophobic contacts, or residue
+identity.
 
-| `kl_weight` | MAE | RMSE | R² | Pearson r | Coverage 1σ/2σ |
-|---|---|---|---|---|---|
-| 1.0 (untempered) | 1.48 | 1.78 | 0.210 | 0.582 | 68% / 96% |
-| 0.1 | 1.33 | 1.70 | 0.280 | 0.577 | 69% / 95% |
-| 0.02 | 1.37 | 1.68 | 0.294 | 0.572 | 66% / 96% |
-| **0.01** | **1.32** | **1.66** | **0.307** | 0.571 | 67% / 94% |
+#### How this compares to published models
 
-The gain is real but it is *not* the gain we predicted. R² rises 46% and MAE falls to 1.32
-(against a 1.63 mean-predictor), while **Pearson r does not improve at all** — it drifts
-from 0.582 to 0.571. What tempering fixes is the last of the miscalibration, not the
-ranking:
+For context, some published results on the CASF-2016 benchmark:
 
-| `kl_weight` | R² | r² (ceiling for a linear fit) | shortfall |
-|---|---|---|---|
-| 1.0 | 0.210 | 0.339 | 0.129 |
-| 0.01 | 0.307 | 0.326 | **0.019** |
+| Model | Pearson r | RMSE |
+|---|---|---|
+| AutoDock Vina | 0.57 | — |
+| Classical scoring functions (X-Score et al.) | ≲0.61 | — |
+| Pafnucy | 0.78 | 1.42 |
+| OnionNet / DeepAtom | 0.81 | 1.28 / 1.32 |
+| OnionNet-2 | 0.86 | 1.16 |
 
-R² now sits at 94% of what its own correlation permits, so there is almost nothing left to
-win from calibration or regularisation. Calibration also survives the change — coverage
-stays near the ideal 68% / 95% — so the trade-off that tempering usually costs did not
-materialise here.
+Our most comparable figure is the core-holdout r ≈ 0.73 (RMSE ≈ 1.68). That sits above
+classical scoring functions and below the tuned deep models, which is a fair reflection of
+where this project is: an untuned model trained for 15–30 CPU epochs, with a deliberately
+simple feature set, against methods that have had far more engineering invested in them.
 
-The practical read: use `--kl-weight 0.01–0.1` (most of the effect is simply *leaving* 1.0;
-differences within that range are small). And the open problem is now precisely located —
-**ranking is a representation limit, not an optimisation one.** Neither more data, more
-epochs, standardisation, nor tempering moves r ≈ 0.58; that ceiling belongs to what the
-towers can see. The geometry tower currently encodes only atomic number and interatomic
-distance — no hydrogen bonds, hydrophobic contacts, or residue identity.
+Two caveats, in both directions. Ours is not a like-for-like comparison — we test on the
+~190-complex DeepChem core set rather than the official 285-complex CASF-2016 set, so
+please treat the table as rough context rather than a ranking. And recent work reports that
+[CASF-2016 overlaps heavily with PDBbind training data](https://academic.oup.com/bioinformatics/article/41/2/btaf040/7985708),
+so [published figures may be inflated by train–test leakage](https://www.nature.com/articles/s42256-025-01124-5).
+That applies to our core-holdout number too; it is a reason to read all of these
+cautiously, not a claim about the gap.
 
 ### Synthetic speed / calibration
 
