@@ -8,14 +8,16 @@ binding affinity with calibrated uncertainty.
 src/caddack/
 ├── qsar/      SMILES featurisation (descriptors + ECFP), scaffold splitting
 ├── gnn/       molecular graphs, GCN/GINE models, Bayesian fusion model, training
+├── docking/   AutoDock Vina pose generation (receptor/ligand prep, search box)
 └── fetch/     ChEMBL / UniProt / RCSB PDB downloads
 ```
 
 ## Install
 
 ```bash
-pip install -e .            # core (numpy, pandas, scikit-learn)
-pip install -e ".[gnn]"     # + torch, torch-geometric, rdkit
+pip install -e .              # core (numpy, pandas, scikit-learn)
+pip install -e ".[gnn]"       # + torch, torch-geometric, rdkit
+pip install -e ".[docking]"   # + vina, meeko, rdkit
 ```
 
 Optional dependencies are lazy: every module **imports** without them and raises a clear
@@ -43,6 +45,31 @@ install hint only at call time.
 
 All models use a factory pattern (`Model.build(...)`) so the modules stay importable
 without torch.
+
+### `caddack.docking` — pose generation
+
+| Module | What it does |
+|---|---|
+| `prepare.py` | Turns the inputs into what Vina needs: SMILES → 3D conformer → ligand PDBQT (RDKit + Meeko), receptor PDB → cleaned PDBQT, and a search box from a reference ligand or pocket. |
+| `vina.py` | Runs AutoDock Vina through its Python bindings and returns ranked `DockedPose` objects. `pose_to_mol()` converts a pose back to RDKit; `pose_rmsd()` gives symmetry-aware RMSD for validation. |
+
+The affinity model scores a *pose*, which normally means it needs a crystal
+structure. Docking supplies that pose for molecules without one, so the two fit
+together: `fetch → dock → score`.
+
+```python
+from caddack.docking import dock_smiles, box_from_reference_ligand
+
+box = box_from_reference_ligand("1q1m_ligand.mol2")   # centre on a known ligand
+poses = dock_smiles("1q1m_protein.pdb", "CC(=O)Oc1ccccc1C(=O)O", box=box)
+print(poses[0].score)          # kcal/mol, more negative is stronger
+```
+
+Receptor preparation prefers Meeko's residue templates, which add polar hydrogens
+and give correct donor/acceptor typing. That needs a **complete protein** — a
+truncated pocket file falls back to a cruder element-based writer and warns.
+Histidines default to the neutral HIE tautomer, since crystal structures carry no
+hydrogens to disambiguate them.
 
 ### The fusion model
 
@@ -173,6 +200,31 @@ please treat the table as rough context rather than a ranking. And recent work r
 so [published figures may be inflated by train–test leakage](https://www.nature.com/articles/s42256-025-01124-5).
 That applies to our core-holdout number too; it is a reason to read all of these
 cautiously, not a claim about the gap.
+
+### Docking: re-docking accuracy
+
+Docking is validated by putting each crystal ligand back into its own receptor and
+measuring RMSD to the known pose — below 2 Å is the usual success criterion.
+
+```bash
+python scripts/benchmark_redocking.py --data-dir /tmp/pdbbind --n 30
+```
+
+30 randomly sampled refined-set complexes, `exhaustiveness=8`, 9 poses each:
+
+| Metric | Result |
+|---|---|
+| Complexes docked without error | 30 / 30 |
+| Top-ranked pose < 2 Å | 13 / 30 (43%) |
+| Any of the top 9 poses < 2 Å | 21 / 30 (70%) |
+| Median RMSD, top pose / best pose | 2.82 Å / 1.30 Å |
+
+The pipeline is reliable — nothing failed to run — and it usually *finds* a
+near-native pose, but ranking it first is harder: the gap between 43% and 70% is
+Vina's scoring function choosing among poses it already generated. Published Vina
+re-docking success is typically higher than our 43%; raising `--exhaustiveness`
+(8 is the default) is the first thing to try, and re-scoring the pose set with the
+fusion model is the more interesting one.
 
 ### Synthetic speed / calibration
 
