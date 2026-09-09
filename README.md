@@ -210,21 +210,37 @@ measuring RMSD to the known pose — below 2 Å is the usual success criterion.
 python scripts/benchmark_redocking.py --data-dir /tmp/pdbbind --n 30
 ```
 
-30 randomly sampled refined-set complexes, `exhaustiveness=8`, 9 poses each:
+30 randomly sampled refined-set complexes, 9 poses each. All 30 docked without
+error in every configuration; what changes is accuracy:
 
-| Metric | Result |
-|---|---|
-| Complexes docked without error | 30 / 30 |
-| Top-ranked pose < 2 Å | 13 / 30 (43%) |
-| Any of the top 9 poses < 2 Å | 21 / 30 (70%) |
-| Median RMSD, top pose / best pose | 2.82 Å / 1.30 Å |
+| Protocol | Top pose < 2 Å | Any of 9 < 2 Å | Median RMSD |
+|---|---|---|---|
+| re-embedded ligand, `exhaustiveness=8` | 43% | 70% | 2.82 Å |
+| crystal conformer, `exhaustiveness=8` | 53% | 83% | 1.50 Å |
+| **crystal conformer, `exhaustiveness=32`** (defaults) | **60%** | **90%** | **1.47 Å** |
 
-The pipeline is reliable — nothing failed to run — and it usually *finds* a
-near-native pose, but ranking it first is harder: the gap between 43% and 70% is
-Vina's scoring function choosing among poses it already generated. Published Vina
-re-docking success is typically higher than our 43%; raising `--exhaustiveness`
-(8 is the default) is the first thing to try, and re-scoring the pose set with the
-fusion model is the more interesting one.
+Two things account for the difference, and the larger one is a protocol subtlety
+worth knowing about:
+
+- **Vina does not change ring conformations.** It samples position, orientation
+  and acyclic torsions, but ring puckers come from the input file. Re-generating
+  each ligand's conformer with ETKDG therefore capped the achievable RMSD
+  whenever the generated pucker differed from the crystal — a sugar (`1np0`) sat
+  0.67 Å from the right position yet scored 4.37 Å RMSD, and a macrocycle
+  (`1nt1`) went from 7.67 Å to 0.38 Å once started from the deposited conformer.
+  Re-docking conventionally starts from the crystal conformer, which is now the
+  default; `--start embed` runs the harder variant that also tests conformer
+  generation.
+- **Search effort.** Raising `--exhaustiveness` from Vina's default of 8 to 32
+  adds about 7 points for roughly 4× the runtime.
+
+The residual gap between 60% and 90% is the scoring function ranking poses it has
+already generated — which is exactly where re-scoring with the fusion model would
+come in.
+
+This matters beyond the benchmark: `dock_smiles()` builds its conformer from
+SMILES, so for a ligand with flexible or macrocyclic rings, consider generating
+several ring conformers and docking each.
 
 ### Synthetic speed / calibration
 

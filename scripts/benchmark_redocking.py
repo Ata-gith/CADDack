@@ -43,11 +43,20 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data-dir", required=True)
     ap.add_argument("--n", type=int, default=30, help="complexes to sample")
-    ap.add_argument("--exhaustiveness", type=int, default=8)
+    ap.add_argument("--exhaustiveness", type=int, default=32,
+                help="Vina search effort. Its own default is 8; 32 is worth\n                     the extra time for benchmarking (+7 points here).")
     ap.add_argument("--n-poses", type=int, default=9)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--ids", nargs="*", default=None, help="explicit PDB ids")
     ap.add_argument("--json-out", default=None)
+    ap.add_argument(
+        "--start", choices=["crystal", "embed"], default="crystal",
+        help="starting ligand conformer. 'crystal' (default, and the standard "
+             "re-docking protocol) keeps the deposited 3D structure; Vina then "
+             "randomises position and orientation and samples acyclic torsions. "
+             "'embed' regenerates the conformer with ETKDG, which also tests "
+             "conformer generation — note Vina cannot change ring puckers, so a "
+             "wrong ring conformation caps the achievable RMSD.")
     args = ap.parse_args()
 
     warnings.filterwarnings("ignore")
@@ -77,11 +86,15 @@ def main() -> None:
             continue
         try:
             box = box_from_reference_ligand(ligand)
-            # Re-embed from scratch so the search cannot start from the answer.
-            probe = Chem.AddHs(Chem.Mol(ref))
-            if AllChem.EmbedMolecule(probe, randomSeed=7) != 0:
-                rows.append({"pdb": pid, "status": "embed_failed"})
-                continue
+            # Vina randomises translation, rotation and acyclic torsions itself,
+            # so starting from the crystal conformer does not hand it the answer.
+            # It does keep ring conformations from the input, which is why
+            # re-embedding is a separate (harder) test rather than the default.
+            probe = Chem.AddHs(Chem.Mol(ref), addCoords=True)
+            if args.start == "embed":
+                if AllChem.EmbedMolecule(probe, randomSeed=7) != 0:
+                    rows.append({"pdb": pid, "status": "embed_failed"})
+                    continue
             lig_q = ligand_pdbqt_from_mol(probe, work / f"{pid}_ligand.pdbqt")
             rec_q = receptor_pdbqt_from_pdb(protein, work / f"{pid}_receptor.pdbqt")
             poses = dock_pdbqt(rec_q, lig_q, box,

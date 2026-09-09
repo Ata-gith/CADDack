@@ -118,6 +118,14 @@ def dock_smiles(receptor_pdb: str | Path, smiles: str,
     Give either an explicit ``box`` or a ``reference_ligand`` to centre on.
     Intermediate PDBQT files are written to ``workdir`` (a temp dir by default)
     so a failed run can be inspected.
+
+    Note that Vina samples position, orientation and acyclic torsions but keeps
+    **ring conformations fixed** at whatever the input conformer has. For ligands
+    with flexible or macrocyclic rings, generate several ring conformers and dock
+    each rather than relying on the single conformer embedded here.
+
+    ``exhaustiveness`` is Vina's default of 8; 32 is noticeably more reliable at
+    roughly four times the runtime.
     """
     if box is None:
         if reference_ligand is None:
