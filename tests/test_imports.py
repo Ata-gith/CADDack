@@ -141,7 +141,10 @@ def test_murcko_scaffold_returns_none_for_invalid():
 
     assert murcko_scaffold("not_a_smiles!!!") is None
     assert murcko_scaffold("") is None
-    assert murcko_scaffold("CCO") is not None  # valid, acyclic → empty scaffold ""
+    # Acyclic molecules have no ring system and therefore no Murcko framework.
+    # This previously returned "" and grouped every acyclic compound together.
+    assert murcko_scaffold("CCO") is None
+    assert murcko_scaffold("c1ccccc1CC") is not None
 
 
 @pytest.mark.skipif(not rdkit_available, reason="RDKit not installed")

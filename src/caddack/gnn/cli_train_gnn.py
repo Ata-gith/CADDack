@@ -8,7 +8,8 @@ def add_cli(subparsers):
     p = subparsers.add_parser("train-gnn", help="Train molecular GNN on SMILES + target CSV")
     p.add_argument("--csv", required=True, help="Input CSV file")
     p.add_argument("--smiles-col", default="SMILES", help="SMILES column")
-    p.add_argument("--target", default="pIC50", help="Target column (default: pIC50, compatible with fetch output)")
+    p.add_argument("--target", default="pIC50",
+                   help="Target column (default pIC50, matching fetch output)")
     p.add_argument("--task", choices=["classification", "regression"], default="classification")
     p.add_argument("--model", choices=["gine", "gcn"], default="gine")
     p.add_argument("--epochs", type=int, default=30)
@@ -18,7 +19,9 @@ def add_cli(subparsers):
     p.add_argument("--num-layers", type=int, default=3)
     p.add_argument("--test-size", type=float, default=0.2)
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--positive-threshold", type=float, default=None, help="If set for classification, convert numeric target to binary label: target >= threshold => 1")
+    p.add_argument("--positive-threshold", type=float, default=None,
+                   help="For classification, binarise the target: "
+                        "value >= threshold becomes 1")
     p.add_argument("--outdir", default="models/gnn")
     p.set_defaults(func=run)
 

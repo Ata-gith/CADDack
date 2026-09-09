@@ -237,9 +237,11 @@ class FusionAffinityNet:
                 super().__init__()
                 # Tower 1: ligand 2D GINE
                 self.lig_convs = nn.ModuleList()
-                self.lig_convs.append(GINEConv(mlp(ligand_in_channels, hidden_channels), edge_dim=ligand_edge_dim))
+                self.lig_convs.append(GINEConv(
+                    mlp(ligand_in_channels, hidden_channels), edge_dim=ligand_edge_dim))
                 for _ in range(num_gine_layers - 1):
-                    self.lig_convs.append(GINEConv(mlp(hidden_channels, hidden_channels), edge_dim=ligand_edge_dim))
+                    self.lig_convs.append(GINEConv(
+                        mlp(hidden_channels, hidden_channels), edge_dim=ligand_edge_dim))
                 self.dropout_p = dropout
 
                 # Tower 2: geometry

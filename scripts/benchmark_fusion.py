@@ -256,7 +256,7 @@ def main():
     import tempfile
     with tempfile.TemporaryDirectory() as tmpdir:
         t0 = time.perf_counter()
-        metrics = train_fusion_from_complexes(
+        fusion_metrics = train_fusion_from_complexes(
             complexes=train_cx,
             outdir=tmpdir,
             hidden_channels=args.hidden,
@@ -272,6 +272,7 @@ def main():
             kl_warmup=5,
         )
         train_sec = time.perf_counter() - t0
+        print(f"  training metrics          : {json.dumps(fusion_metrics)}")
 
         # load trained model for calibration eval on test set
         import torch

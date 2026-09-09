@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import math
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # annotations only; torch stays an optional dependency
+    import torch
 
 
 def _require_torch():

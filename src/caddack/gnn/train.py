@@ -70,14 +70,16 @@ def train_from_csv(
     seed: int = 42,
     positive_threshold: float | None = None,
 ) -> dict[str, float]:
-    torch, F, DataLoader, accuracy_score, roc_auc_score, mean_absolute_error, r2_score = _require_torch_geometric()
+    (torch, F, DataLoader, accuracy_score, roc_auc_score,
+     mean_absolute_error, r2_score) = _require_torch_geometric()
     try:
         import pandas as pd
     except Exception as exc:
         raise ImportError("pandas is required to read training CSV files.") from exc
 
     df = pd.read_csv(csv_path)
-    data_df = _prepare_frame(df, smiles_col=smiles_col, target_col=target_col, task=task, positive_threshold=positive_threshold)
+    data_df = _prepare_frame(df, smiles_col=smiles_col, target_col=target_col,
+                             task=task, positive_threshold=positive_threshold)
     dataset = build_pyg_dataset(data_df[smiles_col].tolist(), data_df[target_col].tolist())
     if len(dataset) < 4:
         raise ValueError("Need at least 4 valid molecules to train/evaluate")
@@ -207,11 +209,16 @@ def train_fusion_from_complexes(
     mc_samples_eval: int = 30,
     no_aleatoric: bool = False,
     standardize_target: bool = True,
+    strict_split: bool = False,
 ) -> dict[str, float]:
     """Train FusionAffinityNet on a list of ComplexExample objects.
 
     Uses scaffold split (via ligand SMILES) when available, else random split.
     Saves model.pt, metrics.json, and config.json to `outdir`.
+
+    ``strict_split`` makes a failed scaffold split raise instead of degrading to a
+    random split; benchmark scripts should set it, so a reported number can never
+    come from a different split than the one requested.
 
     ``standardize_target`` z-scores the affinity with train-set statistics and
     rescales predictions back afterwards. This removes a systematic offset that
@@ -230,17 +237,38 @@ def train_fusion_from_complexes(
     valid = [ex for ex in complexes if ex.ligand_smiles is not None]
     use_scaffold = split == "scaffold" and len(valid) >= 4
 
+    split_used = "random"
+    split_report: dict | None = None
+
     if use_scaffold:
         try:
             import pandas as pd
 
             from caddack.qsar.split import scaffold_split
             df = pd.DataFrame({"SMILES_canonical": [ex.ligand_smiles for ex in valid]})
-            train_idx, test_idx = scaffold_split(df, smiles_col="SMILES_canonical",
-                                                  test_size=test_size, seed=seed)
+            train_idx, test_idx, report = scaffold_split(
+                df, smiles_col="SMILES_canonical", test_size=test_size, seed=seed,
+                return_report=True,
+            )
             complexes_to_use = valid
-        except Exception:
-            use_scaffold = False
+            split_used, split_report = "scaffold", report.as_dict()
+        except Exception as exc:
+            # Never swallow this. Silently substituting a random split for a
+            # scaffold split turns an honest generalisation estimate into an
+            # inflated one, and the caller would attribute the reported metrics
+            # to the split they asked for.
+            if strict_split:
+                raise RuntimeError(
+                    f"scaffold split failed and strict_split=True: {exc}"
+                ) from exc
+            warnings.warn(
+                f"scaffold split unavailable ({type(exc).__name__}: {exc}); "
+                "falling back to a RANDOM split. Reported metrics will be "
+                "optimistic relative to a scaffold split.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            use_scaffold, split_used = False, "random_fallback"
 
     if not use_scaffold:
         complexes_to_use = complexes
@@ -348,6 +376,10 @@ def train_fusion_from_complexes(
         "r2": float(r2_score(all_truths, all_preds)),
         "n_train": n_train,
         "n_test": len(test_pairs),
+        # split provenance: any reported number carries the split it came from
+        "split_requested": split,
+        "split_used": split_used,
+        "split_report": split_report,
     }
 
     outdir = Path(outdir)
@@ -369,6 +401,9 @@ def train_fusion_from_complexes(
         "standardize_target": standardize_target,
         "y_mean": y_mean,
         "y_std": y_std,
+        "split_requested": split,
+        "split_used": split_used,
+        "split_report": split_report,
     }
     (outdir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
 

@@ -44,7 +44,8 @@ def main() -> None:
     ap.add_argument("--data-dir", required=True)
     ap.add_argument("--n", type=int, default=30, help="complexes to sample")
     ap.add_argument("--exhaustiveness", type=int, default=32,
-                help="Vina search effort. Its own default is 8; 32 is worth\n                     the extra time for benchmarking (+7 points here).")
+                help="Vina search effort. Its own default is 8; 32 is worth "
+                     "the extra time for benchmarking (+7 points here).")
     ap.add_argument("--n-poses", type=int, default=9)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--ids", nargs="*", default=None, help="explicit PDB ids")

@@ -279,14 +279,18 @@ def add_cli(subparsers):
     # IDs
     p.add_argument("--chembl", nargs="*", default=[], help="ChEMBL molecule IDs")
     p.add_argument("--chembl-ids-file", default=None, help="Text file with ChEMBL IDs (one per line)")
-    p.add_argument("--chembl-target", default=None, help="ChEMBL target ID (e.g., CHEMBL203) to auto-collect ligands")
-    p.add_argument("--min-n", type=int, default=50, help="Minimum number of ligands to collect when using --chembl-target")
-    p.add_argument("--min-pchembl", type=float, default=None, help="Optional pChEMBL/pIC50 threshold for target harvesting")
+    p.add_argument("--chembl-target", default=None,
+                   help="ChEMBL target ID (e.g. CHEMBL203) to auto-collect ligands")
+    p.add_argument("--min-n", type=int, default=50,
+                   help="Minimum ligands to collect when using --chembl-target")
+    p.add_argument("--min-pchembl", type=float, default=None,
+                   help="Optional pChEMBL/pIC50 threshold for target harvesting")
 
     p.add_argument("--uniprot", nargs="*", default=[], help="UniProt accessions")
     p.add_argument("--pdb", nargs="*", default=[], help="PDB IDs")
     p.add_argument("--pdb-fmt", choices=["pdb", "cif"], default="pdb", help="PDB download format")
-    p.add_argument("--pdb-outdir", default=str(REPO_ROOT / "data" / "raw" / "pdb"), help="Directory to save PDB files")
+    p.add_argument("--pdb-outdir", default=str(REPO_ROOT / "data" / "raw" / "pdb"),
+                   help="Directory to save PDB files")
 
     # Outputs
     p.add_argument("--out", default="-", help="Output JSON path or '-' for stdout")

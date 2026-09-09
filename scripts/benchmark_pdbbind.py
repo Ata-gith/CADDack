@@ -257,7 +257,9 @@ def run(args) -> dict:
         for lig_b, geo_b in test_loader:
             m, e, a = model.predict_with_uncertainty(lig_b, geo_b,
                                                      n_samples=args.mc_samples)
-            preds += m.tolist(); eps += e.tolist(); ale += a.tolist()
+            preds += m.tolist()
+            eps += e.tolist()
+            ale += a.tolist()
             truth += geo_b.y.view(-1).tolist()
     # rescale back to affinity units (uncertainties are scale-only, no offset)
     preds = np.array(preds) * y_std + y_mean
