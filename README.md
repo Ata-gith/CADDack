@@ -20,6 +20,11 @@ pip install -e ".[gnn]"       # + torch, torch-geometric, rdkit
 pip install -e ".[docking]"   # + vina, meeko, rdkit
 ```
 
+`torch-scatter` is intentionally not part of `[gnn]`: it builds from source and
+imports torch during its own build, so it breaks a clean install. Nothing needs
+it — the geometry tower falls back to `torch_geometric.utils.scatter`. Install
+`.[gnn-fast]` after torch if you want the compiled kernels.
+
 For a reproducible environment use the pinned lockfile: `pip install -r requirements.lock`.
 
 Optional dependencies are lazy: every module **imports** without them and raises a clear

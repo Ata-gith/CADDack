@@ -21,8 +21,16 @@ dependencies = [
 gnn = [
     "torch>=2.0",
     "torch-geometric>=2.3",
-    "torch-scatter>=2.1",
     "rdkit>=2023.3",
+]
+# torch-scatter is deliberately NOT in [gnn]. It ships as a source distribution
+# whose setup.py imports torch, so it cannot even compute its build requirements
+# in a clean environment and breaks `pip install caddack[gnn]` outright. Nothing
+# needs it: the geometry tower falls back to torch_geometric.utils.scatter
+# (built in since pyg 2.3) and to a pure-PyTorch radius graph. Install this extra
+# only for the compiled kernels, and only after torch is already present.
+gnn-fast = [
+    "torch-scatter>=2.1",
 ]
 docking = [
     "vina>=1.2.5",
