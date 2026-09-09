@@ -8,14 +8,16 @@ binding affinity with calibrated uncertainty.
 src/caddack/
 ├── qsar/      SMILES featurisation (descriptors + ECFP), scaffold splitting
 ├── gnn/       molecular graphs, GCN/GINE models, Bayesian fusion model, training
+├── docking/   AutoDock Vina pose generation (receptor/ligand prep, search box)
 └── fetch/     ChEMBL / UniProt / RCSB PDB downloads
 ```
 
 ## Install
 
 ```bash
-pip install -e .            # core (numpy, pandas, scikit-learn)
-pip install -e ".[gnn]"     # + torch, torch-geometric, rdkit
+pip install -e .              # core (numpy, pandas, scikit-learn)
+pip install -e ".[gnn]"       # + torch, torch-geometric, rdkit
+pip install -e ".[docking]"   # + vina, meeko, rdkit
 ```
 
 Optional dependencies are lazy: every module **imports** without them and raises a clear
@@ -43,6 +45,31 @@ install hint only at call time.
 
 All models use a factory pattern (`Model.build(...)`) so the modules stay importable
 without torch.
+
+### `caddack.docking` — pose generation
+
+| Module | What it does |
+|---|---|
+| `prepare.py` | Turns the inputs into what Vina needs: SMILES → 3D conformer → ligand PDBQT (RDKit + Meeko), receptor PDB → cleaned PDBQT, and a search box from a reference ligand or pocket. |
+| `vina.py` | Runs AutoDock Vina through its Python bindings and returns ranked `DockedPose` objects. `pose_to_mol()` converts a pose back to RDKit; `pose_rmsd()` gives symmetry-aware RMSD for validation. |
+
+The affinity model scores a *pose*, which normally means it needs a crystal
+structure. Docking supplies that pose for molecules without one, so the two fit
+together: `fetch → dock → score`.
+
+```python
+from caddack.docking import dock_smiles, box_from_reference_ligand
+
+box = box_from_reference_ligand("1q1m_ligand.mol2")   # centre on a known ligand
+poses = dock_smiles("1q1m_protein.pdb", "CC(=O)Oc1ccccc1C(=O)O", box=box)
+print(poses[0].score)          # kcal/mol, more negative is stronger
+```
+
+Receptor preparation prefers Meeko's residue templates, which add polar hydrogens
+and give correct donor/acceptor typing. That needs a **complete protein** — a
+truncated pocket file falls back to a cruder element-based writer and warns.
+Histidines default to the neutral HIE tautomer, since crystal structures carry no
+hydrogens to disambiguate them.
 
 ### The fusion model
 
@@ -173,6 +200,47 @@ please treat the table as rough context rather than a ranking. And recent work r
 so [published figures may be inflated by train–test leakage](https://www.nature.com/articles/s42256-025-01124-5).
 That applies to our core-holdout number too; it is a reason to read all of these
 cautiously, not a claim about the gap.
+
+### Docking: re-docking accuracy
+
+Docking is validated by putting each crystal ligand back into its own receptor and
+measuring RMSD to the known pose — below 2 Å is the usual success criterion.
+
+```bash
+python scripts/benchmark_redocking.py --data-dir /tmp/pdbbind --n 30
+```
+
+30 randomly sampled refined-set complexes, 9 poses each. All 30 docked without
+error in every configuration; what changes is accuracy:
+
+| Protocol | Top pose < 2 Å | Any of 9 < 2 Å | Median RMSD |
+|---|---|---|---|
+| re-embedded ligand, `exhaustiveness=8` | 43% | 70% | 2.82 Å |
+| crystal conformer, `exhaustiveness=8` | 53% | 83% | 1.50 Å |
+| **crystal conformer, `exhaustiveness=32`** (defaults) | **60%** | **90%** | **1.47 Å** |
+
+Two things account for the difference, and the larger one is a protocol subtlety
+worth knowing about:
+
+- **Vina does not change ring conformations.** It samples position, orientation
+  and acyclic torsions, but ring puckers come from the input file. Re-generating
+  each ligand's conformer with ETKDG therefore capped the achievable RMSD
+  whenever the generated pucker differed from the crystal — a sugar (`1np0`) sat
+  0.67 Å from the right position yet scored 4.37 Å RMSD, and a macrocycle
+  (`1nt1`) went from 7.67 Å to 0.38 Å once started from the deposited conformer.
+  Re-docking conventionally starts from the crystal conformer, which is now the
+  default; `--start embed` runs the harder variant that also tests conformer
+  generation.
+- **Search effort.** Raising `--exhaustiveness` from Vina's default of 8 to 32
+  adds about 7 points for roughly 4× the runtime.
+
+The residual gap between 60% and 90% is the scoring function ranking poses it has
+already generated — which is exactly where re-scoring with the fusion model would
+come in.
+
+This matters beyond the benchmark: `dock_smiles()` builds its conformer from
+SMILES, so for a ligand with flexible or macrocyclic rings, consider generating
+several ring conformers and docking each.
 
 ### Synthetic speed / calibration
 

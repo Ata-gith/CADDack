@@ -24,6 +24,12 @@ gnn = [
     "torch-scatter>=2.1",
     "rdkit>=2023.3",
 ]
+docking = [
+    "vina>=1.2.5",
+    "meeko>=0.5",
+    "gemmi",          # meeko's receptor templates need it, but it is not a hard dep
+    "rdkit>=2023.3",
+]
 dev = [
     "pytest>=7.0",
 ]
