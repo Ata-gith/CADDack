@@ -7,7 +7,7 @@ name = "caddack"
 version = "0.1.0"
 description = "CADDack: modular CADD toolkit"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 authors = [{name = "Ata Ozkan"}]
 dependencies = [
     "numpy>=1.24",
@@ -30,15 +30,18 @@ docking = [
     "gemmi",          # meeko's receptor templates need it, but it is not a hard dep
     "rdkit>=2023.3",
 ]
-dev = [
-    "pytest>=7.0",
-]
+
+
+[dependency-groups]
+# PEP 735: local-only, never published as installable metadata.
+dev = ["pytest>=8", "pytest-cov", "ruff", "mypy", "pyarrow"]
 
 [project.scripts]
 caddack = "caddack.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
+package-data = {"caddack" = ["py.typed"]}
 
 [tool.setuptools.packages.find]
 where = ["src"]

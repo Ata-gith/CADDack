@@ -20,6 +20,8 @@ pip install -e ".[gnn]"       # + torch, torch-geometric, rdkit
 pip install -e ".[docking]"   # + vina, meeko, rdkit
 ```
 
+For a reproducible environment use the pinned lockfile: `pip install -r requirements.lock`.
+
 Optional dependencies are lazy: every module **imports** without them and raises a clear
 install hint only at call time.
 
@@ -30,8 +32,10 @@ install hint only at call time.
 | Module | What it does |
 |---|---|
 | `descriptors.py` | SMILES → features. Salt stripping, canonicalisation, 6 physicochemical descriptors (`MolWt`, `LogP`, `TPSA`, `NumHBD`, `NumHBA`, `NumRotBonds`) and ECFP fingerprint bits. `featurize_dataframe()` featurises a whole CSV, flagging invalid rows instead of raising. |
-| `split.py` | `scaffold_split()` — group molecules by Murcko scaffold and hold out whole scaffold groups, so test compounds are chemically novel. Much harder (and more honest) than a random split. |
-| `train_qsar.py` | Random-forest baselines on the featurised data. |
+| `split.py` | `scaffold_split()` — group molecules by Murcko scaffold and hold out whole scaffold groups, so test compounds are chemically novel. Much harder (and more honest) than a random split. Returns a `SplitReport` recording the fraction actually achieved. |
+| `standardize.py` | ChEMBL-style curation: cleanup → largest fragment → neutralise → normalise, with optional tautomer canonicalisation. Two spellings of one compound otherwise become two records, which is a leakage path. |
+| `applicability.py` | Applicability domain — `SimilarityAD` (nearest-neighbour Tanimoto) and `LeverageAD` (Williams plot). Answers whether a prediction is inside the training chemistry. |
+| `train_qsar.py` | Random-forest baselines with repeated scaffold-split CV, reported as mean ± sd with Pearson *r*. |
 
 ### `caddack.gnn` — graph neural networks
 

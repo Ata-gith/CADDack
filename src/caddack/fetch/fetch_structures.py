@@ -6,6 +6,7 @@ import math
 import statistics as stats
 import sys
 import time
+import warnings
 from pathlib import Path
 
 import requests
@@ -72,27 +73,65 @@ def _chembl_paged(url_base: str, page_size: int = 1000, max_pages: int = 20, tim
     Yield JSON 'activities' pages from a ChEMBL collection endpoint using offset paging.
     Stops on empty page or max_pages.
     """
+    exhausted = False
     for i in range(max_pages):
         url = f"{url_base}&limit={page_size}&offset={i*page_size}"
         r = _get(url, timeout=timeout)
         if r.status_code != 200:
-            break
+            warnings.warn(
+                f"ChEMBL returned HTTP {r.status_code} at offset {i * page_size}; "
+                "the harvest is PARTIAL and order-dependent, not the full "
+                "activity set for this query.",
+                RuntimeWarning, stacklevel=2,
+            )
+            return
         data = r.json() or {}
         items = data.get("activities") or []
         if not items:
+            exhausted = True
             break
         yield items
+    if not exhausted:
+        # A well-studied target (EGFR, CHEMBL203) exceeds page_size * max_pages,
+        # and silently returning a truncated subset reads as a complete one.
+        warnings.warn(
+            f"stopped after max_pages={max_pages} ({page_size * max_pages} activities) "
+            "without exhausting the query; results are TRUNCATED. Raise max_pages "
+            "to collect the rest.",
+            RuntimeWarning, stacklevel=2,
+        )
 
-def fetch_target_pic50s(target_chembl_id: str, needed: int = 50, timeout: float = 20.0) -> dict[str, float]:
-    """
-    Return dict {molecule_chembl_id: median_pIC50} for a ChEMBL target,
-    collecting until 'needed' unique molecules (or data exhausted).
+def fetch_target_pic50s(
+    target_chembl_id: str,
+    needed: int = 50,
+    timeout: float = 20.0,
+    assay_type: str | None = "B",
+    min_confidence: int | None = 8,
+    max_pages: int = 50,
+) -> dict[str, float]:
+    """Return ``{molecule_chembl_id: median_pIC50}`` for a ChEMBL target.
+
+    ``assay_type`` restricts the assay class. Binding assays ("B", the default)
+    measure Kd/Ki against the protein; functional assays ("F") measure a cellular
+    or enzymatic response. The two are not interchangeable quantities, so taking
+    a median across both mixes incomparable numbers. Pass ``None`` to disable.
+
+    ``min_confidence`` filters on ChEMBL's target confidence score, where 9 means
+    the activity is assigned directly to a single protein target. Values below
+    about 8 include homologous or ambiguous assignments. Pass ``None`` to disable.
+
+    Aggregation is a median *within* the surviving assay class, not across
+    classes.
     """
     target_chembl_id = target_chembl_id.upper().strip()
     base = (f"{CHEMBL_BASE}/activity.json?"
             f"target_chembl_id={target_chembl_id}&standard_type=IC50")
+    if assay_type:
+        base += f"&assay_type={assay_type}"
+    if min_confidence is not None:
+        base += f"&target_confidence__gte={int(min_confidence)}"
     per_mol: dict[str, list[float]] = {}
-    for page in _chembl_paged(base, page_size=1000, max_pages=50, timeout=timeout):
+    for page in _chembl_paged(base, page_size=1000, max_pages=max_pages, timeout=timeout):
         for a in page:
             mid = (a.get("molecule_chembl_id") or "").upper().strip()
             if not mid:
@@ -285,6 +324,16 @@ def add_cli(subparsers):
                    help="Minimum ligands to collect when using --chembl-target")
     p.add_argument("--min-pchembl", type=float, default=None,
                    help="Optional pChEMBL/pIC50 threshold for target harvesting")
+    p.add_argument("--assay-type", default="B",
+                   help="ChEMBL assay class: B=binding, F=functional, "
+                        "'any' to disable. Mixing classes averages "
+                        "incomparable quantities.")
+    p.add_argument("--min-confidence", type=int, default=8,
+                   help="Minimum ChEMBL target confidence score "
+                        "(9 = assigned directly to a single protein)")
+    p.add_argument("--max-pages", type=int, default=50,
+                   help="Paging cap for the activity harvest; a warning is "
+                        "emitted if it is reached before exhausting the query")
 
     p.add_argument("--uniprot", nargs="*", default=[], help="UniProt accessions")
     p.add_argument("--pdb", nargs="*", default=[], help="PDB IDs")
@@ -301,7 +350,13 @@ def run(args):
     # Auto-collect ChEMBL ligands for a target to reach at least N rows
     auto_cids: list[tuple[str, float]] = []
     if args.chembl_target:
-        pic50_map = fetch_target_pic50s(args.chembl_target, needed=args.min_n)
+        pic50_map = fetch_target_pic50s(
+            args.chembl_target,
+            needed=args.min_n,
+            assay_type=(None if str(args.assay_type).lower() == "any" else args.assay_type),
+            min_confidence=args.min_confidence,
+            max_pages=args.max_pages,
+        )
         # Optional potency filter (was previously registered but ignored)
         if args.min_pchembl is not None:
             pic50_map = {m: v for m, v in pic50_map.items() if v >= args.min_pchembl}
