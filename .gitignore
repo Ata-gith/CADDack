@@ -26,3 +26,7 @@ build/
 *.synctex.gz
 
 
+
+# Local AutoDock tutorial (kept out of version control on request)
+docs/autodock_tutorial.pdf
+docs/autodock_tutorial.tex
