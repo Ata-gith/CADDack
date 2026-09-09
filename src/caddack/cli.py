@@ -1,36 +1,44 @@
 #!/usr/bin/env python3
+"""CADDack command-line entry point.
+
+Every subcommand lives inside the installed package, so the CLI works from a
+wheel. Nothing here reaches outside the distribution -- an earlier version put
+``scripts/`` on ``sys.path`` and imported from it, which made all subcommands
+unusable once installed, because ``scripts/`` ships in neither the wheel nor the
+sdist.
+"""
+from __future__ import annotations
+
 import argparse
-import importlib
-import pathlib
-import sys
+from collections.abc import Sequence
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
+    """Construct the full CLI. Kept separate so tests can inspect it."""
     parser = argparse.ArgumentParser(prog="caddack", description="CADDack CLI")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
-    # make repo root (containing 'scripts/') importable
-    repo_root = pathlib.Path(__file__).resolve().parents[2]
-    if str(repo_root) not in sys.path:
-        sys.path.insert(0, str(repo_root))
+    # Imported here rather than at module scope so that `caddack --help` does not
+    # pay for pandas/torch, and so a broken optional dependency cannot take down
+    # unrelated subcommands.
+    from caddack.fetch import fetch_structures
+    from caddack.gnn import cli_train_fusion, cli_train_gnn
+    from caddack.qsar import run_qsar_descriptors, train_qsar
 
-    # subcommands
-    import caddack.fetch.fetch_structures as fs
-    fs.add_cli(sub)
+    for module in (
+        fetch_structures,
+        run_qsar_descriptors,
+        train_qsar,
+        cli_train_gnn,
+        cli_train_fusion,
+    ):
+        module.add_cli(sub)
 
-    import caddack.qsar.run_qsar_descriptors as qs
-    qs.add_cli(sub)
+    return parser
 
-    import caddack.qsar.train_qsar as tq
-    tq.add_cli(sub)
 
-    import scripts.train_gnn as tg
-    tg.add_cli(sub)
-
-    import scripts.train_fusion as tf
-    tf.add_cli(sub)
-
-    args = parser.parse_args()
+def main(argv: Sequence[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
     return args.func(args)
 
 

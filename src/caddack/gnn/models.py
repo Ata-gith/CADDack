@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from typing import List
 
 
 def _require_torch():
@@ -205,7 +204,7 @@ class FusionAffinityNet:
         num_rbf: int = 50,
         cutoff: float = 6.0,
         num_elements: int = 100,
-        bayesian_hidden: List[int] | None = None,
+        bayesian_hidden: list[int] | None = None,
         prior_sigma: float = 1.0,
         dropout: float = 0.1,
     ):

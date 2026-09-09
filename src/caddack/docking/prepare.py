@@ -9,17 +9,17 @@ without RDKit, Meeko or Vina installed.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
 
 
 @dataclass
 class Box:
     """Vina search box, in angstroms."""
 
-    center: Tuple[float, float, float]
-    size: Tuple[float, float, float]
+    center: tuple[float, float, float]
+    size: tuple[float, float, float]
 
 
 def _require_rdkit():
@@ -29,7 +29,7 @@ def _require_rdkit():
     except Exception as exc:  # pragma: no cover - optional dependency path
         raise ImportError(
             "RDKit is required to prepare ligands. "
-            "Install with `conda install -c conda-forge rdkit`."
+            "Install with `pip install rdkit` (or `pip install caddack[gnn]`)."
         ) from exc
     return Chem, AllChem
 
@@ -116,14 +116,14 @@ _DISCARD_HETATM = {
 
 
 def clean_receptor_pdb(pdb_path: str | Path, out_path: str | Path,
-                       keep_hetatm: Optional[Sequence[str]] = None) -> Path:
+                       keep_hetatm: Sequence[str] | None = None) -> Path:
     """Strip waters/additives, drop alternate locations, keep the first model.
 
     Cofactors and metals that matter for binding can be retained by name via
     ``keep_hetatm`` (e.g. ``["ZN", "HEM"]``).
     """
     keep = {r.upper() for r in (keep_hetatm or [])}
-    lines: List[str] = []
+    lines: list[str] = []
     text = Path(pdb_path).read_text(errors="ignore")
 
     for line in text.splitlines():
@@ -172,7 +172,7 @@ def _default_his_templates(pdb_path: Path) -> dict:
 
 
 def receptor_pdbqt_from_pdb(pdb_path: str | Path, out_path: str | Path,
-                            keep_hetatm: Optional[Sequence[str]] = None,
+                            keep_hetatm: Sequence[str] | None = None,
                             strict: bool = False) -> Path:
     """Clean a receptor PDB and convert it to PDBQT for Vina.
 
@@ -191,8 +191,7 @@ def receptor_pdbqt_from_pdb(pdb_path: str | Path, out_path: str | Path,
     clean_receptor_pdb(pdb_path, cleaned, keep_hetatm=keep_hetatm)
 
     try:
-        from meeko import (MoleculePreparation, PDBQTWriterLegacy, Polymer,
-                           ResidueChemTemplates)
+        from meeko import MoleculePreparation, PDBQTWriterLegacy, Polymer, ResidueChemTemplates
 
         polymer = Polymer.from_pdb_string(
             cleaned.read_text(),

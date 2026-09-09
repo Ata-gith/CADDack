@@ -320,7 +320,7 @@ def main():
         print("Building dataset cache ...")
         build(data_dir)
     if not (data_dir / CACHE_NAME).exists():
-        raise SystemExit(f"No dataset cache; run with --download --build first")
+        raise SystemExit("No dataset cache; run with --download --build first")
     if args.split == "core" and not args.core_csv:
         raise SystemExit("--split core requires --core-csv (pdbbind_core_df.csv.gz)")
     run(args)

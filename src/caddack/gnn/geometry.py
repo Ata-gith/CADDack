@@ -1,13 +1,11 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
-
 
 # Atom element → atomic number (sufficient subset for organic/bio molecules)
-_ELEMENT_Z: Dict[str, int] = {
+_ELEMENT_Z: dict[str, int] = {
     "H": 1, "C": 6, "N": 7, "O": 8, "F": 9, "P": 15, "S": 16, "CL": 17,
     "BR": 35, "I": 53, "FE": 26, "ZN": 30, "CA": 20, "MG": 12, "NA": 11,
     "K": 19, "CU": 29, "MN": 25, "CO": 27, "NI": 28, "SE": 34, "B": 5,
@@ -54,13 +52,13 @@ def _element_from_name(raw_name: str) -> str:
     return stripped[:1].upper() if stripped else ""
 
 
-def parse_pdb_atoms(pdb_path: str | Path) -> List[PDBAtom]:
+def parse_pdb_atoms(pdb_path: str | Path) -> list[PDBAtom]:
     """Fixed-width PDB ATOM/HETATM parser. No Biopython needed.
 
     Takes first MODEL only; skips alternate locations (altLoc != ' '/'A').
     Returns an empty list if the file is missing or unreadable.
     """
-    atoms: List[PDBAtom] = []
+    atoms: list[PDBAtom] = []
     path = Path(pdb_path)
     if not path.exists():
         return atoms
@@ -122,12 +120,12 @@ def _require_rdkit():
     except Exception as exc:
         raise ImportError(
             "RDKit is required to load ligand files (.sdf/.mol2). "
-            "Install with `conda install -c conda-forge rdkit`."
+            "Install with `pip install rdkit` (or `pip install caddack[gnn]`)."
         ) from exc
     return Chem, AllChem
 
 
-def load_ligand(ligand_path: str | Path) -> Optional[List[PDBAtom]]:
+def load_ligand(ligand_path: str | Path) -> list[PDBAtom] | None:
     """Load a ligand from .sdf or .mol2, returning PDBAtom list with 3D coords.
 
     Returns None if RDKit is unavailable or parsing fails.
@@ -152,7 +150,7 @@ def load_ligand(ligand_path: str | Path) -> Optional[List[PDBAtom]]:
         return None
 
     conf = mol.GetConformer(0)
-    atoms: List[PDBAtom] = []
+    atoms: list[PDBAtom] = []
     for atom in mol.GetAtoms():
         pos = conf.GetAtomPosition(atom.GetIdx())
         elem = atom.GetSymbol().upper()
@@ -175,12 +173,12 @@ def _dist(a: PDBAtom, b: PDBAtom) -> float:
 
 
 def extract_pocket(
-    protein_atoms: List[PDBAtom],
-    ligand_atoms: List[PDBAtom],
+    protein_atoms: list[PDBAtom],
+    ligand_atoms: list[PDBAtom],
     cutoff: float = 6.0,
-) -> List[PDBAtom]:
+) -> list[PDBAtom]:
     """Return protein ATOM records within `cutoff` Å of any ligand atom."""
-    pocket: List[PDBAtom] = []
+    pocket: list[PDBAtom] = []
     for pa in protein_atoms:
         if pa.record != "ATOM":
             continue
@@ -194,8 +192,8 @@ def extract_pocket(
 @dataclass
 class GeometryRecord:
     """3D atoms (pocket + ligand) with atomic numbers and positions."""
-    atomic_nums: List[int]        # [N] integer Z values
-    positions: List[Tuple[float, float, float]]  # [N] (x,y,z)
+    atomic_nums: list[int]        # [N] integer Z values
+    positions: list[tuple[float, float, float]]  # [N] (x,y,z)
     n_ligand: int                 # first n_ligand entries are ligand atoms
     n_pocket: int                 # remaining entries are pocket atoms
 
@@ -205,14 +203,14 @@ class ComplexExample:
     """Single protein–ligand complex for fusion model training."""
     pdb_id: str
     affinity: float               # e.g. pKd / pIC50
-    ligand_smiles: Optional[str]  # may be None if ligand is sdf-only
+    ligand_smiles: str | None  # may be None if ligand is sdf-only
     geo: GeometryRecord
     # ligand 2D graph arrays are built on-the-fly from ligand_smiles in the dataset loader
 
 
 def _build_geo_record(
-    ligand_atoms: List[PDBAtom],
-    pocket_atoms: List[PDBAtom],
+    ligand_atoms: list[PDBAtom],
+    pocket_atoms: list[PDBAtom],
 ) -> GeometryRecord:
     combined = ligand_atoms + pocket_atoms
     atomic_nums = [a.atomic_num for a in combined]
@@ -231,7 +229,7 @@ def load_complex(
     affinity: float,
     pdb_id: str = "",
     cutoff: float = 6.0,
-) -> Optional[ComplexExample]:
+) -> ComplexExample | None:
     """Load one protein–ligand complex from PDB + ligand file.
 
     Returns None if parsing yields fewer than 1 ligand or pocket atom.
@@ -280,7 +278,7 @@ def load_complex_dataset(
     pdb_col: str = "pdb_id",
     ligand_suffix: str = ".sdf",
     cutoff: float = 6.0,
-) -> List[ComplexExample]:
+) -> list[ComplexExample]:
     """Load a PDBbind-style dataset from an index CSV and a root directory.
 
     Expected layout (adjustable via column args):
@@ -296,7 +294,7 @@ def load_complex_dataset(
 
     df = pd.read_csv(index_csv)
     root = Path(root)
-    examples: List[ComplexExample] = []
+    examples: list[ComplexExample] = []
 
     for _, row in df.iterrows():
         pdb_id = str(row[pdb_col])

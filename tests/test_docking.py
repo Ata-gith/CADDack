@@ -134,8 +134,7 @@ def test_ligand_pdbqt_is_written(tmp_path):
                     reason="rdkit+meeko+vina required")
 def test_dock_into_a_small_box_returns_ranked_poses(tmp_path):
     """End-to-end: prepare both sides, dock, and get sensibly ranked poses."""
-    from caddack.docking import (Box, dock_pdbqt, ligand_pdbqt_from_smiles,
-                                 receptor_pdbqt_from_pdb)
+    from caddack.docking import Box, dock_pdbqt, ligand_pdbqt_from_smiles, receptor_pdbqt_from_pdb
 
     # a small artificial receptor: a plane of alanines around the origin
     lines = []
@@ -166,8 +165,14 @@ def test_dock_into_a_small_box_returns_ranked_poses(tmp_path):
                     reason="rdkit+meeko+vina required")
 def test_pose_rmsd_against_itself_is_zero(tmp_path):
     """RMSD of a pose against the molecule it came from must be ~0."""
-    from caddack.docking import (Box, dock_pdbqt, ligand_pdbqt_from_smiles,
-                                 pose_rmsd, pose_to_mol, receptor_pdbqt_from_pdb)
+    from caddack.docking import (
+        Box,
+        dock_pdbqt,
+        ligand_pdbqt_from_smiles,
+        pose_rmsd,
+        pose_to_mol,
+        receptor_pdbqt_from_pdb,
+    )
 
     receptor_pdb = tmp_path / "rec.pdb"
     receptor_pdb.write_text(

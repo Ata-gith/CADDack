@@ -1,0 +1,52 @@
+name: ci
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pipx run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  test:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+        # "" is the only cell where the dependency-absence tests actually run
+        extras: ["", "[gnn]"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "${{ matrix.python }}"
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      # Install the built wheel, never the working tree: the src/ layout exists
+      # so that tests can only resolve against an installed distribution.
+      - name: Install wheel
+        run: pip install "$(ls dist/*.whl)${{ matrix.extras }}" pytest pytest-cov ruff
+
+      # Regression guard for the packaging defect where the CLI imported from a
+      # top-level scripts/ directory that ships in neither the wheel nor the sdist.
+      - name: CLI works from an installed wheel
+        run: caddack --help
+
+      - name: Lint
+        run: ruff check src tests scripts
+
+      - name: Tests
+        run: pytest -q --cov=caddack --cov-branch --cov-report=term-missing

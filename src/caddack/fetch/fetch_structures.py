@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # scripts/fetch_structures.py
-import argparse
 import csv
 import json
 import math
@@ -397,10 +396,3 @@ def run(args):
                 if r.get("pIC50") is None:
                     r["pIC50"] = ""
                 w.writerow(r)
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(prog="caddack", description="CADDack CLI")
-    sub = parser.add_subparsers(dest="cmd", required=True)
-    add_cli(sub)
-    args = parser.parse_args()
-    args.func(args)

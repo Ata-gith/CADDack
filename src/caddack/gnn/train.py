@@ -3,8 +3,6 @@ from __future__ import annotations
 import json
 import warnings
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
-
 
 from caddack.gnn.datasets import build_pyg_dataset
 from caddack.gnn.geometry import ComplexExample
@@ -15,7 +13,7 @@ def _require_torch_geometric():
     try:
         import torch
         import torch.nn.functional as F
-        from sklearn.metrics import accuracy_score, roc_auc_score, mean_absolute_error, r2_score
+        from sklearn.metrics import accuracy_score, mean_absolute_error, r2_score, roc_auc_score
         from torch_geometric.loader import DataLoader  # type: ignore
     except Exception as exc:  # pragma: no cover
         raise ImportError(
@@ -46,7 +44,7 @@ def _prepare_frame(df, smiles_col: str, target_col: str, task: str, positive_thr
             # No threshold: the column must already be binary {0, 1}, otherwise
             # BCE/AUC downstream would silently train on / crash against floats.
             uniq = set(data_df[target_col].dropna().unique().tolist())
-            if not uniq.issubset({0, 1, 0.0, 1.0}):
+            if not uniq.issubset({0, 1}):
                 raise ValueError(
                     f"task='classification' but target {target_col!r} is not binary "
                     f"(found {sorted(uniq)[:5]}...). Pass positive_threshold to binarize "
@@ -71,7 +69,7 @@ def train_from_csv(
     test_size: float = 0.2,
     seed: int = 42,
     positive_threshold: float | None = None,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     torch, F, DataLoader, accuracy_score, roc_auc_score, mean_absolute_error, r2_score = _require_torch_geometric()
     try:
         import pandas as pd
@@ -169,9 +167,9 @@ def _require_fusion_deps():
     try:
         import torch
         import torch.nn.functional as F
+        from sklearn.metrics import mean_absolute_error, r2_score  # type: ignore
         from torch_geometric.data import Data  # type: ignore
         from torch_geometric.loader import DataLoader  # type: ignore
-        from sklearn.metrics import mean_absolute_error, r2_score  # type: ignore
     except Exception as exc:
         raise ImportError(
             "Fusion training requires torch, torch-geometric, and scikit-learn."
@@ -189,14 +187,14 @@ def _build_geo_pyg(ex: ComplexExample):
 
 
 def train_fusion_from_complexes(
-    complexes: List[ComplexExample],
+    complexes: list[ComplexExample],
     outdir: str | Path = "models/fusion",
     hidden_channels: int = 128,
     num_gine_layers: int = 3,
     num_geo_interactions: int = 3,
     num_rbf: int = 50,
     cutoff: float = 6.0,
-    bayesian_hidden: Optional[List[int]] = None,
+    bayesian_hidden: list[int] | None = None,
     prior_sigma: float = 1.0,
     kl_weight: float = 1.0,
     kl_warmup: int = 10,
@@ -209,7 +207,7 @@ def train_fusion_from_complexes(
     mc_samples_eval: int = 30,
     no_aleatoric: bool = False,
     standardize_target: bool = True,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Train FusionAffinityNet on a list of ComplexExample objects.
 
     Uses scaffold split (via ligand SMILES) when available, else random split.
@@ -221,9 +219,9 @@ def train_fusion_from_complexes(
     prior; ``y_mean``/``y_std`` are recorded in ``config.json`` for inference.
     """
     torch, F, Data, DataLoader, mean_absolute_error, r2_score = _require_fusion_deps()
+    from caddack.gnn.bayes import elbo_loss
     from caddack.gnn.datasets import smiles_to_graph_arrays, to_pyg_data
     from caddack.gnn.models import FusionAffinityNet
-    from caddack.gnn.bayes import elbo_loss
 
     if len(complexes) < 4:
         raise ValueError("Need at least 4 valid complexes to train.")
@@ -235,6 +233,7 @@ def train_fusion_from_complexes(
     if use_scaffold:
         try:
             import pandas as pd
+
             from caddack.qsar.split import scaffold_split
             df = pd.DataFrame({"SMILES_canonical": [ex.ligand_smiles for ex in valid]})
             train_idx, test_idx = scaffold_split(df, smiles_col="SMILES_canonical",

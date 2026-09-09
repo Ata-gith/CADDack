@@ -26,3 +26,9 @@ build/
 *.synctex.gz
 
 
+
+# Trained model artifacts (publish as release assets, not in git)
+models/
+
+# Raw data must never live inside the package
+src/caddack/data/

@@ -15,6 +15,7 @@ def test_element_inference_column_aware():
     """Blank element columns must resolve to the right element via PDB columns:
     ' CA ' -> carbon (not calcium), ' ND1' -> N, ' OD1' -> O, 'FE  ' -> iron."""
     import tempfile
+
     from caddack.gnn.geometry import parse_pdb_atoms
 
     pdb = (
@@ -40,6 +41,7 @@ def test_element_inference_column_aware():
 def test_populated_element_column_wins():
     """When columns 77-78 carry the element, it is used verbatim."""
     import tempfile
+
     from caddack.gnn.geometry import parse_pdb_atoms
 
     line = "ATOM      1  CA  ALA A   1      11.104  13.207  10.000  1.00  0.00           C\n"
@@ -74,6 +76,7 @@ def test_empty_smiles_strict_raises():
 
 def test_classification_continuous_target_raises():
     import pandas as pd
+
     from caddack.gnn.train import _prepare_frame
 
     df = pd.DataFrame({"smiles": ["CCO", "c1ccccc1"], "y": [5.2, 6.1]})
@@ -83,6 +86,7 @@ def test_classification_continuous_target_raises():
 
 def test_classification_binary_target_ok():
     import pandas as pd
+
     from caddack.gnn.train import _prepare_frame
 
     df = pd.DataFrame({"smiles": ["CCO", "c1ccccc1"], "y": [0, 1]})
@@ -95,9 +99,10 @@ def test_classification_binary_target_ok():
 @pytest.mark.skipif(not gnn_deps, reason="torch+pyg+rdkit required")
 def test_uncertainty_no_nan_single_sample():
     import torch
-    from torch_geometric.data import Data, Batch
-    from caddack.gnn.models import FusionAffinityNet
+    from torch_geometric.data import Batch, Data
+
     from caddack.gnn.datasets import smiles_to_graph_arrays, to_pyg_data
+    from caddack.gnn.models import FusionAffinityNet
 
     m = FusionAffinityNet.build(ligand_in_channels=7, ligand_edge_dim=7, hidden_channels=8,
                                 num_gine_layers=1, num_geo_interactions=1, num_rbf=4, cutoff=5.0,
@@ -111,9 +116,10 @@ def test_uncertainty_no_nan_single_sample():
 @pytest.mark.skipif(not gnn_deps, reason="torch+pyg+rdkit required")
 def test_predict_restores_training_mode():
     import torch
-    from torch_geometric.data import Data, Batch
-    from caddack.gnn.models import FusionAffinityNet
+    from torch_geometric.data import Batch, Data
+
     from caddack.gnn.datasets import smiles_to_graph_arrays, to_pyg_data
+    from caddack.gnn.models import FusionAffinityNet
 
     m = FusionAffinityNet.build(ligand_in_channels=7, ligand_edge_dim=7, hidden_channels=8,
                                 num_gine_layers=1, num_geo_interactions=1, num_rbf=4, cutoff=5.0,
@@ -133,7 +139,8 @@ def test_standardize_target_config_roundtrip(tmp_path):
     pytest.importorskip("torch_geometric")
     pytest.importorskip("rdkit")
     import json
-    from caddack.gnn.geometry import GeometryRecord, ComplexExample
+
+    from caddack.gnn.geometry import ComplexExample, GeometryRecord
     from caddack.gnn.train import train_fusion_from_complexes
 
     def mk(smiles, aff):

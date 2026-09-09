@@ -64,9 +64,13 @@ def main() -> None:
     from rdkit.Chem import AllChem
 
     RDLogger.DisableLog("rdApp.*")
-    from caddack.docking import (box_from_reference_ligand, dock_pdbqt,
-                                 ligand_pdbqt_from_mol, pose_rmsd,
-                                 receptor_pdbqt_from_pdb)
+    from caddack.docking import (
+        box_from_reference_ligand,
+        dock_pdbqt,
+        ligand_pdbqt_from_mol,
+        pose_rmsd,
+        receptor_pdbqt_from_pdb,
+    )
 
     data_dir = Path(args.data_dir)
     ids = args.ids or random.Random(args.seed).sample(_refined_ids(data_dir), args.n)

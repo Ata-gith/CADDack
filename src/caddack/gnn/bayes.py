@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import math
-from typing import List, Tuple
 
 
 def _require_torch():
@@ -103,7 +102,7 @@ class BayesianMLP:
     @staticmethod
     def build(
         in_features: int,
-        hidden_dims: List[int],
+        hidden_dims: list[int],
         prior_sigma: float = 1.0,
         dropout: float = 0.0,
     ):
@@ -126,7 +125,7 @@ class BayesianMLP:
                 self.out_logs = out_logs
                 self.dropout_p = dropout
 
-            def forward(self, x) -> Tuple:
+            def forward(self, x) -> tuple:
                 for layer in self.bayes_layers:
                     x = F.relu(layer(x))
                     if self.dropout_p > 0 and self.training:
@@ -145,11 +144,11 @@ def elbo_loss(
     mu,
     log_var,
     y,
-    kl: "torch.Tensor",
+    kl: torch.Tensor,
     n_train: int,
     kl_weight: float = 1.0,
     aleatoric: bool = True,
-) -> "torch.Tensor":
+) -> torch.Tensor:
     """Per-example negative ELBO (Blundell et al. 2015).
 
     The NLL is a per-example mean over the batch, so the dataset-level KL must be

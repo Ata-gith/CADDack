@@ -1,7 +1,9 @@
 # tests/test_fetch_structures.py
-import types, json
-from pathlib import Path
+import json
+import types
+
 from caddack.fetch import fetch_structures as fs
+
 
 class DummyResp:
     def __init__(self, code, text="", json_data=None):

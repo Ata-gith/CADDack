@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import warnings
-from dataclasses import dataclass
-from typing import Iterable, List, Sequence, Tuple
-
 import logging
+import warnings
+from collections.abc import Sequence
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +15,9 @@ BOND_FEAT_DIM = 7  # len(_bond_features) output
 class GraphArrays:
     """Framework-agnostic molecular graph representation."""
 
-    node_features: List[List[float]]
-    edge_index: List[Tuple[int, int]]
-    edge_features: List[List[float]]
+    node_features: list[list[float]]
+    edge_index: list[tuple[int, int]]
+    edge_features: list[list[float]]
 
 
 def _require_rdkit():
@@ -27,12 +26,12 @@ def _require_rdkit():
     except Exception as exc:  # pragma: no cover - depends on optional dependency
         raise ImportError(
             "RDKit is required for molecular graph featurization. "
-            "Install with `conda install -c conda-forge rdkit`."
+            "Install with `pip install rdkit` (or `pip install caddack[gnn]`)."
         ) from exc
     return Chem
 
 
-def _atom_features(atom) -> List[float]:
+def _atom_features(atom) -> list[float]:
     """Compact atom-level feature vector from common medicinal chemistry priors."""
 
     atomic_num = atom.GetAtomicNum()
@@ -53,7 +52,7 @@ def _atom_features(atom) -> List[float]:
     ]
 
 
-def _bond_features(bond) -> List[float]:
+def _bond_features(bond) -> list[float]:
     Chem = _require_rdkit()
     bt = bond.GetBondType()
     bt_single = float(bt == Chem.rdchem.BondType.SINGLE)
@@ -78,8 +77,8 @@ def smiles_to_graph_arrays(smiles: str) -> GraphArrays:
 
     node_features = [_atom_features(atom) for atom in mol.GetAtoms()]
 
-    edge_index: List[Tuple[int, int]] = []
-    edge_features: List[List[float]] = []
+    edge_index: list[tuple[int, int]] = []
+    edge_features: list[list[float]] = []
     for bond in mol.GetBonds():
         i, j = bond.GetBeginAtomIdx(), bond.GetEndAtomIdx()
         feat = _bond_features(bond)
@@ -93,7 +92,7 @@ def smiles_to_graph_arrays(smiles: str) -> GraphArrays:
     )
 
 
-def graphs_from_smiles(smiles_list: Sequence[str]) -> List[GraphArrays]:
+def graphs_from_smiles(smiles_list: Sequence[str]) -> list[GraphArrays]:
     return [smiles_to_graph_arrays(s) for s in smiles_list]
 
 

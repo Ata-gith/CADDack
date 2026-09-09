@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
-import argparse, json
+import json
 from pathlib import Path
+
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor, RandomForestClassifier
+from joblib import dump
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.metrics import (
-    r2_score, mean_absolute_error, mean_squared_error,
-    roc_auc_score, average_precision_score, f1_score, accuracy_score,
+    accuracy_score,
+    average_precision_score,
+    f1_score,
+    mean_absolute_error,
+    mean_squared_error,
+    r2_score,
+    roc_auc_score,
 )
 from sklearn.model_selection import train_test_split
-from joblib import dump
 
 from caddack.qsar.split import scaffold_split
 
@@ -205,11 +211,3 @@ def run(args):
     )
 
     print(json.dumps({"outdir": str(outdir), "metrics": metrics}, indent=2))
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(prog="caddack", description="CADDack CLI")
-    sub = parser.add_subparsers(dest="cmd", required=True)
-    add_cli(sub)
-    args = parser.parse_args()
-    args.func(args)

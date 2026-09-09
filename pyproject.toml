@@ -42,3 +42,26 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+# Examples are teaching material: linear top-to-bottom scripts, not library code.
+exclude = ["examples"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --strict-config"
+markers = ["slow: excluded by default"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["rdkit.*", "torch.*", "torch_geometric.*", "torch_scatter.*", "meeko.*", "vina.*", "sklearn.*", "joblib.*", "scipy.*"]
+ignore_missing_imports = true

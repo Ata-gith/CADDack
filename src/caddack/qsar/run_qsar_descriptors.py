@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-import argparse
-from pathlib import Path
 import sys
+from pathlib import Path
+
 import pandas as pd
+
 from caddack.qsar.descriptors import featurize_dataframe
 
 
@@ -61,11 +62,3 @@ def run(args):
     # minimal stdout report
     n_err = int((feats["__error"] == "invalid_smiles").sum()) if "__error" in feats.columns else 0
     print(f"wrote={outp} rows={len(feats)} errors={n_err}")
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(prog="caddack", description="CADDack CLI")
-    sub = parser.add_subparsers(dest="cmd", required=True)
-    add_cli(sub)
-    args = parser.parse_args()
-    args.func(args)

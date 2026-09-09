@@ -16,8 +16,6 @@ import json
 import math
 import random
 import time
-from typing import List, Tuple
-
 
 # ---------------------------------------------------------------------------
 # Synthetic data helpers
@@ -100,11 +98,11 @@ def bench_speed(model, lig_batch, geo_batch, device, n_samples_list=(5, 10, 30, 
 # ---------------------------------------------------------------------------
 
 def calibration_ece(
-    preds: List[float],
-    epistemic_stds: List[float],
-    truths: List[float],
+    preds: list[float],
+    epistemic_stds: list[float],
+    truths: list[float],
     n_bins: int = 10,
-) -> Tuple[float, List[dict]]:
+) -> tuple[float, list[dict]]:
     """Gaussian empirical coverage ECE proxy.
 
     For each nominal confidence level p, check fraction of true values
@@ -133,13 +131,14 @@ def calibration_ece(
 
 def train_baseline(
     train_smiles, train_affinities, test_smiles, test_affinities
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """GINE-only baseline (no geometry tower, no Bayes) trained for 20 epochs."""
     import torch
+    import torch.nn.functional as F
     from torch_geometric.loader import DataLoader
+
     from caddack.gnn.datasets import smiles_to_graph_arrays, to_pyg_data
     from caddack.gnn.models import MolecularGINE
-    import torch.nn.functional as F
 
     train_set = [to_pyg_data(smiles_to_graph_arrays(s), y=y)
                  for s, y in zip(train_smiles, train_affinities)]
@@ -195,9 +194,10 @@ def main():
 
     try:
         import torch
-        from torch_geometric.data import Data, Batch
-        from caddack.gnn.models import FusionAffinityNet
+        from torch_geometric.data import Batch, Data
+
         from caddack.gnn.datasets import smiles_to_graph_arrays, to_pyg_data
+        from caddack.gnn.models import FusionAffinityNet
         from caddack.gnn.train import train_fusion_from_complexes
     except ImportError as e:
         print(f"ERROR: missing dependencies — {e}")
@@ -206,7 +206,7 @@ def main():
 
     device = torch.device(args.device)
     n = args.n_complexes
-    print(f"\n=== CADDack FusionAffinityNet Benchmark ===")
+    print("\n=== CADDack FusionAffinityNet Benchmark ===")
     print(f"  Complexes : {n}")
     print(f"  Device    : {device}")
     print(f"  Hidden    : {args.hidden}")
@@ -252,7 +252,8 @@ def main():
     # SECTION 2 — Train and calibrate
     # ----------------------------------------------------------------
     print("--- [2/3] Training fusion model for calibration + accuracy ---")
-    import tempfile, os
+    import os
+    import tempfile
     with tempfile.TemporaryDirectory() as tmpdir:
         t0 = time.perf_counter()
         metrics = train_fusion_from_complexes(
@@ -274,10 +275,11 @@ def main():
 
         # load trained model for calibration eval on test set
         import torch
+        from torch_geometric.data import Batch
+
+        from caddack.gnn.datasets import smiles_to_graph_arrays, to_pyg_data
         from caddack.gnn.models import FusionAffinityNet
         from caddack.gnn.train import _build_geo_pyg
-        from caddack.gnn.datasets import smiles_to_graph_arrays, to_pyg_data
-        from torch_geometric.data import Batch
 
         config_path = os.path.join(tmpdir, "config.json")
         config = json.loads(open(config_path).read())

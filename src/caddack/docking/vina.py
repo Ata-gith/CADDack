@@ -7,9 +7,9 @@ rest of the package (in particular the affinity model) can consume.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
 
 from caddack.docking.prepare import (
     Box,
@@ -34,9 +34,9 @@ class DockedPose:
     pdbqt: str
 
     @property
-    def coords(self) -> List[Tuple[float, float, float]]:
+    def coords(self) -> list[tuple[float, float, float]]:
         """Heavy-atom coordinates parsed out of the pose PDBQT."""
-        out: List[Tuple[float, float, float]] = []
+        out: list[tuple[float, float, float]] = []
         for line in self.pdbqt.splitlines():
             if line[:6].strip() in ("ATOM", "HETATM"):
                 try:
@@ -59,7 +59,7 @@ def _require_vina():
 
 def dock_pdbqt(receptor_pdbqt: str | Path, ligand_pdbqt: str | Path, box: Box,
                exhaustiveness: int = 8, n_poses: int = 9,
-               seed: int = 42, verbosity: int = 0) -> List[DockedPose]:
+               seed: int = 42, verbosity: int = 0) -> list[DockedPose]:
     """Dock a prepared ligand into a prepared receptor.
 
     ``exhaustiveness`` trades runtime for search thoroughness (Vina's default is
@@ -78,7 +78,7 @@ def dock_pdbqt(receptor_pdbqt: str | Path, ligand_pdbqt: str | Path, box: Box,
     energies = v.energies(n_poses=n_poses)
     blocks = _split_models(v.poses(n_poses=n_poses))
 
-    poses: List[DockedPose] = []
+    poses: list[DockedPose] = []
     for i, block in enumerate(blocks):
         row = energies[i] if i < len(energies) else []
         score = float(row[0]) if len(row) else float("nan")
@@ -89,7 +89,7 @@ def dock_pdbqt(receptor_pdbqt: str | Path, ligand_pdbqt: str | Path, box: Box,
     return poses
 
 
-def _split_models(pdbqt_text: str) -> List[str]:
+def _split_models(pdbqt_text: str) -> list[str]:
     """Split a multi-MODEL PDBQT string into one block per pose."""
     blocks, current = [], []
     for line in pdbqt_text.splitlines():
@@ -108,11 +108,11 @@ def _split_models(pdbqt_text: str) -> List[str]:
 
 
 def dock_smiles(receptor_pdb: str | Path, smiles: str,
-                box: Optional[Box] = None,
-                reference_ligand: Optional[str | Path] = None,
-                workdir: Optional[str | Path] = None,
+                box: Box | None = None,
+                reference_ligand: str | Path | None = None,
+                workdir: str | Path | None = None,
                 exhaustiveness: int = 8, n_poses: int = 9, seed: int = 42,
-                keep_hetatm: Optional[Sequence[str]] = None) -> List[DockedPose]:
+                keep_hetatm: Sequence[str] | None = None) -> list[DockedPose]:
     """Dock a SMILES string into a receptor PDB, end to end.
 
     Give either an explicit ``box`` or a ``reference_ligand`` to centre on.

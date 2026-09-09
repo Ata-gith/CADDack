@@ -13,7 +13,7 @@ def _require_rdkit():
     except Exception as exc:
         raise ImportError(
             "RDKit is required for QSAR descriptors. "
-            "Install with `conda install -c conda-forge rdkit`."
+            "Install with `pip install rdkit` (or `pip install caddack[gnn]`)."
         ) from exc
     return Chem, Descriptors, rdMolDescriptors
 
@@ -97,7 +97,12 @@ def mol_to_ecfp_bits(
     radius: int = 2,
     n_bits: int = 2048,
 ) -> dict[str, int]:
-    """Return dense 0/1 dict for ECFP bits, compatible with multiple RDKit APIs."""
+    """Return dense 0/1 dict for ECFP bits, compatible with multiple RDKit APIs.
+
+    Column names follow the ECFP convention, in which the number is the circular
+    **diameter**, not the radius (Rogers & Hahn, JCIM 50:742, 2010). The default
+    ``radius=2`` therefore yields ``ECFP4_*`` columns, not ``ECFP2_*``.
+    """
     rfg = _get_rfg()
     if rfg is not None:
         try:
@@ -122,7 +127,7 @@ def mol_to_ecfp_bits(
                 on = set(fp.GetNonzeroElements().keys())
         else:
             on = set()
-        return {f"ECFP{radius}_{i}": int(i in on) for i in range(n_bits)}
+        return {f"ECFP{2 * radius}_{i}": int(i in on) for i in range(n_bits)}
 
     # legacy fallback — useChirality=True to match the generator path above,
     # so bit meanings are identical regardless of which RDKit API is present
@@ -130,7 +135,7 @@ def mol_to_ecfp_bits(
     fp = rdMolDescriptors.GetMorganFingerprintAsBitVect(
         m, radius=radius, nBits=n_bits, useChirality=True
     )
-    return {f"ECFP{radius}_{i}": int(fp.GetBit(i)) for i in range(n_bits)}
+    return {f"ECFP{2 * radius}_{i}": int(fp.GetBit(i)) for i in range(n_bits)}
 
 
 def smiles_to_features(

@@ -26,7 +26,6 @@ import pandas as pd
 
 from caddack.gnn.train import train_from_csv
 
-
 # name -> (download url, smiles_col, target_col, task)
 DATASETS = {
     "ESOL": (

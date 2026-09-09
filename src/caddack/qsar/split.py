@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Tuple
-
 import numpy as np
 import pandas as pd
 
@@ -13,12 +11,12 @@ def _require_rdkit():
     except Exception as exc:
         raise ImportError(
             "RDKit is required for scaffold splitting. "
-            "Install with `conda install -c conda-forge rdkit`."
+            "Install with `pip install rdkit` (or `pip install caddack[gnn]`)."
         ) from exc
     return Chem, MurckoScaffold
 
 
-def murcko_scaffold(smiles: str) -> Optional[str]:
+def murcko_scaffold(smiles: str) -> str | None:
     """Return canonical Murcko scaffold SMILES, or None if the input is invalid."""
     Chem, MurckoScaffold = _require_rdkit()
     m = Chem.MolFromSmiles(smiles) if smiles else None
@@ -35,10 +33,10 @@ def scaffold_split(
     smiles_col: str = "SMILES_canonical",
     test_size: float = 0.2,
     seed: int = 42,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(seed)
-    scaffolds: Dict[str, List[int]] = {}
-    invalid: List[int] = []
+    scaffolds: dict[str, list[int]] = {}
+    invalid: list[int] = []
 
     for i, s in enumerate(df[smiles_col].fillna("")):
         scaf = murcko_scaffold(s)
@@ -51,7 +49,7 @@ def scaffold_split(
     rng.shuffle(keys)
 
     # invalid rows always go to train to avoid leaking bad data into evaluation
-    test_idx: List[int] = []
+    test_idx: list[int] = []
     n_target = int(round(len(df) * test_size))
     for k in keys:
         test_idx.extend(scaffolds[k])

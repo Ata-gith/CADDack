@@ -67,10 +67,10 @@ def test_gnn_training_requires_torch():
 def test_descriptors_importable():
     """Module must import cleanly regardless of whether RDKit is installed."""
     from caddack.qsar import (  # noqa: F401
-        featurize_dataframe,
-        smiles_to_features,
-        parse_smiles,
         canonicalize_smiles,
+        featurize_dataframe,
+        parse_smiles,
+        smiles_to_features,
         strip_salts,
     )
 
@@ -124,7 +124,7 @@ def test_strip_salts_keeps_largest_fragment():
 # --- qsar.split ---
 
 def test_split_importable():
-    from caddack.qsar.split import scaffold_split, murcko_scaffold  # noqa: F401
+    from caddack.qsar.split import murcko_scaffold, scaffold_split  # noqa: F401
 
 
 @pytest.mark.skipif(rdkit_available, reason="RDKit is installed; absence test not applicable")
@@ -147,6 +147,7 @@ def test_murcko_scaffold_returns_none_for_invalid():
 @pytest.mark.skipif(not rdkit_available, reason="RDKit not installed")
 def test_scaffold_split_sizes():
     import pandas as pd
+
     from caddack.qsar.split import scaffold_split
 
     # 10 simple molecules with varied scaffolds
@@ -168,6 +169,7 @@ def test_scaffold_split_sizes():
 @pytest.mark.skipif(not rdkit_available, reason="RDKit not installed")
 def test_scaffold_split_invalid_smiles_go_to_train():
     import pandas as pd
+
     from caddack.qsar.split import scaffold_split
 
     smiles = ["CCO", "CCCO", "not_valid", "c1ccccc1", "c1ccncc1",

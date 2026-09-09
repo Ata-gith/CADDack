@@ -5,7 +5,6 @@ No-dep tests (PDB parser, import guards) run without any optional packages.
 BNN / forward / training tests are gated on torch + torch-geometric + rdkit.
 """
 import importlib.util
-import types
 
 import pytest
 
@@ -68,7 +67,7 @@ def test_parse_pdb_atoms_first_model_only(tmp_path):
 
 
 def test_extract_pocket_distance(tmp_path):
-    from caddack.gnn.geometry import parse_pdb_atoms, extract_pocket, PDBAtom
+    from caddack.gnn.geometry import extract_pocket, parse_pdb_atoms
 
     pdb = tmp_path / "test.pdb"
     pdb.write_text(MINIMAL_PDB, encoding="utf-8")
@@ -86,8 +85,8 @@ def test_extract_pocket_distance(tmp_path):
 
 
 def test_build_geo_record():
-    from caddack.gnn.geometry import parse_pdb_atoms, extract_pocket, _build_geo_record, PDBAtom
-    import math
+
+    from caddack.gnn.geometry import PDBAtom, _build_geo_record
 
     # Build synthetic atoms directly
     def make_atom(record, x, y, z, elem="C", z_num=6):
@@ -137,6 +136,7 @@ def test_load_ligand_requires_rdkit(tmp_path):
 @pytest.mark.skipif(not torch_available, reason="torch not installed")
 def test_bayesian_linear_forward_shape():
     import torch
+
     from caddack.gnn.bayes import BayesianLinear
     layer = BayesianLinear.build(in_features=8, out_features=4)
     x = torch.randn(3, 8)
@@ -147,6 +147,7 @@ def test_bayesian_linear_forward_shape():
 @pytest.mark.skipif(not torch_available, reason="torch not installed")
 def test_bayesian_linear_kl_positive():
     import torch
+
     from caddack.gnn.bayes import BayesianLinear
     layer = BayesianLinear.build(in_features=8, out_features=4)
     x = torch.randn(2, 8)
@@ -159,6 +160,7 @@ def test_bayesian_linear_kl_positive():
 def test_bayesian_linear_stochastic_at_train():
     """Two forward passes should give different outputs during training."""
     import torch
+
     from caddack.gnn.bayes import BayesianLinear
     layer = BayesianLinear.build(in_features=8, out_features=4)
     layer.train()
@@ -171,6 +173,7 @@ def test_bayesian_linear_stochastic_at_train():
 @pytest.mark.skipif(not torch_available, reason="torch not installed")
 def test_bayesian_mlp_output_shapes():
     import torch
+
     from caddack.gnn.bayes import BayesianMLP
     mlp = BayesianMLP.build(in_features=16, hidden_dims=[32, 16])
     mlp.train()
@@ -183,6 +186,7 @@ def test_bayesian_mlp_output_shapes():
 @pytest.mark.skipif(not torch_available, reason="torch not installed")
 def test_bayesian_mlp_kl_accumulates():
     import torch
+
     from caddack.gnn.bayes import BayesianMLP
     mlp = BayesianMLP.build(in_features=8, hidden_dims=[16, 8])
     mlp.train()
@@ -196,6 +200,7 @@ def test_bayesian_mlp_kl_accumulates():
 @pytest.mark.skipif(not torch_available, reason="torch not installed")
 def test_elbo_loss_finite():
     import torch
+
     from caddack.gnn.bayes import BayesianMLP, elbo_loss
     mlp = BayesianMLP.build(in_features=4, hidden_dims=[8])
     mlp.train()
@@ -210,6 +215,7 @@ def test_elbo_loss_finite():
 @pytest.mark.skipif(not torch_available, reason="torch not installed")
 def test_elbo_loss_backward():
     import torch
+
     from caddack.gnn.bayes import BayesianMLP, elbo_loss
     mlp = BayesianMLP.build(in_features=4, hidden_dims=[8])
     mlp.train()
@@ -258,9 +264,9 @@ def _make_synthetic_complexes(n: int = 6):
 @pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit not installed")
 def test_fusion_forward_pass():
     import torch
-    from torch_geometric.data import Data, Batch
+    from torch_geometric.data import Batch, Data
+
     from caddack.gnn.datasets import smiles_to_graph_arrays, to_pyg_data
-    from caddack.gnn.geometry import GeometryRecord, ComplexExample
     from caddack.gnn.models import FusionAffinityNet
 
     # Build a minimal ligand graph
@@ -298,10 +304,11 @@ def test_fusion_forward_pass():
 @pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit not installed")
 def test_fusion_kl_and_backward():
     import torch
-    from torch_geometric.data import Data, Batch
+    from torch_geometric.data import Batch, Data
+
+    from caddack.gnn.bayes import elbo_loss
     from caddack.gnn.datasets import smiles_to_graph_arrays, to_pyg_data
     from caddack.gnn.models import FusionAffinityNet
-    from caddack.gnn.bayes import elbo_loss
 
     g = smiles_to_graph_arrays("c1ccccc1")
     lig_data = to_pyg_data(g, y=6.0)
@@ -335,7 +342,8 @@ def test_fusion_kl_and_backward():
 @pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit not installed")
 def test_fusion_uncertainty_output():
     import torch
-    from torch_geometric.data import Data, Batch
+    from torch_geometric.data import Batch, Data
+
     from caddack.gnn.datasets import smiles_to_graph_arrays, to_pyg_data
     from caddack.gnn.models import FusionAffinityNet
 
