@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -63,10 +64,12 @@ def parse_pdb_atoms(pdb_path: str | Path) -> List[PDBAtom]:
     atoms: List[PDBAtom] = []
     path = Path(pdb_path)
     if not path.exists():
+        warnings.warn(f"PDB file not found; skipping parse: {path}", stacklevel=2)
         return atoms
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    except OSError as exc:
+        warnings.warn(f"Could not read PDB file; skipping parse: {path} ({exc})", stacklevel=2)
         return atoms
 
     in_first_model = True
@@ -144,11 +147,14 @@ def load_ligand(ligand_path: str | Path) -> Optional[List[PDBAtom]]:
         elif suffix == ".mol":
             mol = Chem.MolFromMolFile(str(path), removeHs=True)   # MDL molfile
         else:
+            warnings.warn(f"Unsupported ligand format; skipping: {path}", stacklevel=2)
             return None
     except Exception:
+        warnings.warn(f"Failed to parse ligand file; skipping: {path}", stacklevel=2)
         return None
 
     if mol is None or not mol.GetNumConformers():
+        warnings.warn(f"Ligand file had no usable structure; skipping: {path}", stacklevel=2)
         return None
 
     conf = mol.GetConformer(0)
@@ -239,9 +245,11 @@ def load_complex(
     protein_atoms = parse_pdb_atoms(pdb_path)
     ligand_atoms = load_ligand(ligand_path)
     if not ligand_atoms:
+        warnings.warn(f"Skipping complex {pdb_id or Path(pdb_path).stem}: no usable ligand atoms from {ligand_path}", stacklevel=2)
         return None
     pocket_atoms = extract_pocket(protein_atoms, ligand_atoms, cutoff=cutoff)
     if not pocket_atoms:
+        warnings.warn(f"Skipping complex {pdb_id or Path(pdb_path).stem}: no pocket atoms within {cutoff} Å of ligand", stacklevel=2)
         return None
 
     geo = _build_geo_record(ligand_atoms, pocket_atoms)
@@ -297,6 +305,7 @@ def load_complex_dataset(
     df = pd.read_csv(index_csv)
     root = Path(root)
     examples: List[ComplexExample] = []
+    skipped = 0
 
     for _, row in df.iterrows():
         pdb_id = str(row[pdb_col])
@@ -309,5 +318,14 @@ def load_complex_dataset(
             if smiles_col in row and pd.notna(row[smiles_col]):
                 ex.ligand_smiles = str(row[smiles_col])
             examples.append(ex)
+        else:
+            skipped += 1
+
+    if skipped:
+        warnings.warn(
+            f"load_complex_dataset skipped {skipped} of {len(df)} complexes due to missing/invalid geometry or ligand files.",
+            stacklevel=2,
+        )
 
     return examples
+
