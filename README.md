@@ -25,6 +25,12 @@ imports torch during its own build, so it breaks a clean install. Nothing needs
 it — the geometry tower falls back to `torch_geometric.utils.scatter`. Install
 `.[gnn-fast]` after torch if you want the compiled kernels.
 
+Or with conda, which carries RDKit, PyTorch and Vina as binary packages:
+
+```bash
+conda env create -f environment.yml && conda activate caddack && pip install -e .
+```
+
 For a reproducible environment use the pinned lockfile: `pip install -r requirements.lock`.
 
 Optional dependencies are lazy: every module **imports** without them and raises a clear
@@ -107,6 +113,7 @@ caddack <subcommand> --help
 | `qsar-train` | Train a random-forest QSAR baseline. |
 | `train-gnn` | Train `MolecularGCN`/`MolecularGINE` from a SMILES CSV. |
 | `train-fusion` | Train the two-tower Bayesian affinity model. |
+| `dock` | Dock a SMILES ligand into a receptor PDB with AutoDock Vina. |
 
 ## Benchmarks
 
@@ -282,6 +289,10 @@ pytest tests/ -q          # optional-dependency tests skip automatically
 ```
 
 ## Further reading
+
+Both the LaTeX source and the rendered PDF are committed for each document, so
+they are readable on GitHub without a TeX install. They account for most of the
+repository's ~1 MB.
 
 - [`docs/elbo_math.pdf`](docs/elbo_math.pdf) — the ELBO objective end to end.
 - [`docs/caddack_gnn_math.pdf`](docs/caddack_gnn_math.pdf) — full mathematics of every layer.

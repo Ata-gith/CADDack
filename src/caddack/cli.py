@@ -21,6 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     # Imported here rather than at module scope so that `caddack --help` does not
     # pay for pandas/torch, and so a broken optional dependency cannot take down
     # unrelated subcommands.
+    from caddack.docking import cli_dock
     from caddack.fetch import fetch_structures
     from caddack.gnn import cli_train_fusion, cli_train_gnn
     from caddack.qsar import run_qsar_descriptors, train_qsar
@@ -31,6 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
         train_qsar,
         cli_train_gnn,
         cli_train_fusion,
+        cli_dock,
     ):
         module.add_cli(sub)
 

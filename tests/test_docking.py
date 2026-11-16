@@ -3,6 +3,7 @@
 The heavy dependencies (RDKit, Meeko, Vina) are optional, so each test skips
 cleanly when they are absent. Box maths and PDB cleaning need none of them.
 """
+import argparse
 import importlib.util
 import textwrap
 
@@ -186,3 +187,53 @@ def test_pose_rmsd_against_itself_is_zero(tmp_path):
 
     mol = pose_to_mol(poses[0])
     assert pose_rmsd(poses[0], mol) == pytest.approx(0.0, abs=1e-6)
+
+
+# --- dock CLI -----------------------------------------------------------------
+# The box-resolution and argument handling need no optional dependency, so they
+# are asserted directly; the Vina call itself is covered by the tests above.
+
+def test_dock_subcommand_is_registered():
+    """`caddack dock` must exist: docking had no CLI entry point at all."""
+    from caddack.cli import build_parser
+
+    parser = build_parser()
+    action = next(a for a in parser._actions if hasattr(a, "choices") and a.choices)
+    assert "dock" in action.choices
+
+
+def test_dock_requires_a_search_box():
+    from caddack.docking.cli_dock import _resolve_box
+
+    args = argparse.Namespace(reference_ligand=None, center=None, size=None)
+    with pytest.raises(SystemExit, match="no search box"):
+        _resolve_box(args)
+
+
+def test_dock_rejects_two_ways_of_specifying_the_box():
+    from caddack.docking.cli_dock import _resolve_box
+
+    args = argparse.Namespace(reference_ligand="lig.sdf",
+                              center=[0.0, 0.0, 0.0], size=[10.0, 10.0, 10.0])
+    with pytest.raises(SystemExit, match="not both"):
+        _resolve_box(args)
+
+
+def test_dock_builds_an_explicit_box():
+    from caddack.docking.cli_dock import _resolve_box
+
+    args = argparse.Namespace(reference_ligand=None,
+                              center=[1.0, 2.0, 3.0], size=[20.0, 20.0, 20.0])
+    box = _resolve_box(args)
+    assert box.center == (1.0, 2.0, 3.0)
+    assert box.size == (20.0, 20.0, 20.0)
+
+
+@pytest.mark.skipif(not rdkit_available, reason="rdkit required")
+def test_dock_rejects_an_unreadable_reference_ligand(tmp_path):
+    from caddack.docking.cli_dock import _load_reference_mol
+
+    bad = tmp_path / "ref.xyz"
+    bad.write_text("not a molecule")
+    with pytest.raises(SystemExit, match="unsupported reference ligand format"):
+        _load_reference_mol(bad)

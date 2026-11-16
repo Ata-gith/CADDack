@@ -1,0 +1,47 @@
+# Conda environment for CADDack, including the optional GNN and docking stacks.
+#
+# conda-forge carries RDKit, PyTorch and AutoDock Vina as binary packages, which
+# is why this route exists alongside pip: `pip install vina` builds from source
+# and needs a toolchain, and torch-scatter cannot be pip-installed before torch
+# is present.
+#
+#   conda env create -f environment.yml
+#   conda activate caddack
+#   pip install -e .
+#
+# For a core-only install (no RDKit/torch/Vina) use pip instead:
+#   pip install -e .
+# For exact pinned versions of the core dependencies, see requirements.lock.
+name: caddack
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+
+  # --- core (mirrors [project.dependencies] in pyproject.toml) ---
+  - numpy>=1.24
+  - pandas>=1.5
+  - scikit-learn>=1.2
+  - scipy
+  - requests>=2.28
+  - joblib>=1.2
+  - pyarrow          # parquet support for qsar-descriptors / qsar-train
+
+  # --- [gnn] extra ---
+  - rdkit>=2023.3
+  - pytorch>=2.0
+
+  # --- [docking] extra ---
+  - vina>=1.2.5
+  - gemmi            # meeko's receptor templates need it but do not declare it
+
+  # --- development ---
+  - pytest>=8
+  - pytest-cov
+  - ruff
+
+  - pip
+  - pip:
+      # Not packaged on conda-forge, so these come from PyPI.
+      - torch-geometric>=2.3
+      - meeko>=0.5
