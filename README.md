@@ -156,19 +156,6 @@ Affinity in p*K* units (−log *K*d/*K*i):
 | Refined, 20 ep | **scaffold** | 2,959 / 740 | 1.32 | 0.31 | 0.57 | 67% / 94% |
 | *mean predictor* | — | — | 1.82 | 0.00 | — | — |
 
-A few notes on reading them:
-
-- Every run beats the mean-predictor baseline, and the uncertainty estimates are
-  reasonably calibrated (ideal coverage is 68% / 95%).
-- The core-holdout numbers are the optimistic ones — the refined and core sets share many
-  scaffolds. The scaffold split is the stricter test, since those test ligands are
-  chemically new to the model.
-- More epochs and more data both plateau quickly, so the limit is not training volume.
-
-#### Two settings that mattered
-
-Both were found on the scaffold split. Standardisation is on by default; tempering is opt-in
-via `--kl-weight`.
 
 | Scaffold split, 20 epochs | MAE | RMSE | R² | Pearson r | Coverage 1σ/2σ |
 |---|---|---|---|---|---|
