@@ -220,11 +220,13 @@ function drawSignals() {
      \u2014 still modest, but it is the most useful warning available here, and the better
      half of it needs no neural network.
      <br><br>
-     <em>Read the middle rows loosely.</em> Monte Carlo sampling makes the model's own
-     uncertainty stochastic, and re-running the same trained model moves these
-     correlations by about as much as the gaps between them. Two things survive that
-     noise: the epistemic term sits at or below zero, and the training-distance signal
-     stays positive.`;
+     <em>Read the middle three rows as tied.</em> Monte Carlo sampling makes the model's
+     own uncertainty stochastic, and repeating this over eight passes of the same weights
+     moves each correlation by roughly ±0.02 — enough to reorder them. Two things did hold
+     in every pass: the epistemic term never crossed zero, and the combination beat both of
+     its parts. The training-distance signal is also the steadiest of the five, because it
+     involves no sampling at all — which for deciding whether to trust a prediction matters
+     as much as the correlation does.`;
 }
 
 // --- selected complex --------------------------------------------------------

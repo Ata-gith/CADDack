@@ -132,13 +132,28 @@ ligands outside the domain average 1.38 pK of error against 1.18 for those insid
 Averaging their ranks beats either alone, and that combination is what the page
 shows. It is still modest, and the better half of it needs no neural network.
 
-**These numbers are noisier than they look.** Monte Carlo dropout makes the
-uncertainty estimate stochastic, so re-exporting the *same trained model* moved
-the combined ρ from 0.146 to 0.112 — a swing comparable to the effect being
-measured. The page recomputes every correlation from the shipped data, so it is
-always self-consistent, but treat the ordering of the middle rows as unresolved
-rather than measured. Only two things look robust across passes: epistemic sits
-at or below zero, and the applicability-domain signal is positive.
+**How stable are these?** The uncertainty estimate is stochastic, so the
+comparison was repeated over eight independent Monte Carlo passes of the same
+trained model:
+
+| signal | mean ρ | sd | range |
+|---|---|---|---|
+| epistemic σ | −0.069 | 0.016 | −0.094 … −0.048 |
+| aleatoric σ | +0.089 | 0.013 | +0.078 … +0.118 |
+| both, as reported | +0.087 | 0.022 | +0.063 … +0.134 |
+| distance from training chemistry | +0.093 | **0.004** | +0.089 … +0.098 |
+| the two, rank-averaged | +0.128 | 0.017 | +0.101 … +0.159 |
+
+Two orderings hold in **every** pass: epistemic never crosses zero, and the
+combination beats both of its parts (8/8 against each). The middle three sit
+within noise of one another, so nothing should be read into their order.
+
+The applicability-domain signal is also by far the most *reproducible* — its sd
+is a quarter of the others', because it does not depend on Monte Carlo sampling
+at all. For deciding whether to trust a prediction, that matters as much as the
+correlation itself.
+
+Reproduce with `scripts/rho_stability.py`.
 
 ## Updating RDKit
 
