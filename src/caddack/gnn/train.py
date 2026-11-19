@@ -198,6 +198,12 @@ def _build_geo_pyg(ex: ComplexExample, with_neighbors: bool = True):
 
         feats = neighbor_features(geo.atomic_nums, geo.positions, geo.n_ligand)
         data.nfeat = torch.tensor(feats, dtype=torch.float)
+    # Ligand atoms come first in the record. The interaction readout needs to know
+    # which contacts cross the interface, so the mask is passed explicitly rather
+    # than inferred from the feature layout.
+    mask = torch.zeros(len(geo.atomic_nums), dtype=torch.float)
+    mask[: geo.n_ligand] = 1.0
+    data.is_ligand = mask
     return data
 
 

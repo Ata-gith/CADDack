@@ -139,8 +139,11 @@ class GeometryTower:
         num_interactions: int = 3,
         cutoff: float = 6.0,
         node_feat_dim: int = 0,
+        readout: str = "interaction",
     ):
         torch, nn, F, global_add_pool, radius_graph, scatter = _require_torch_geo()
+        if readout not in ("interaction", "sum"):
+            raise ValueError(f"readout must be 'interaction' or 'sum', got {readout!r}")
 
         rbf_module = GaussianRBF.build(num_rbf=num_rbf, cutoff=cutoff)
 
@@ -189,8 +192,20 @@ class GeometryTower:
                 self.rbf = rbf_module
                 self.blocks = nn.ModuleList([_InteractionBlock() for _ in range(num_interactions)])
                 self.cutoff = cutoff
+                self.readout = readout
+                if readout == "interaction":
+                    # One embedding per protein-ligand contact, from the two atom
+                    # states and their separation.
+                    self.pair_net = nn.Sequential(
+                        nn.Linear(hidden_channels + num_rbf, hidden_channels),
+                        nn.SiLU(),
+                        nn.Linear(hidden_channels, hidden_channels),
+                    )
+                    # Four pooled views -> back to hidden_channels, so the fusion
+                    # head's input size is unchanged.
+                    self.out_proj = nn.Linear(4 * hidden_channels, hidden_channels)
 
-            def forward(self, z, pos, batch, nfeat=None):
+            def forward(self, z, pos, batch, nfeat=None, is_ligand=None):
                 h = self.embed(z.clamp(0, num_elements))
                 if self.node_feat_dim:
                     if nfeat is None:
@@ -206,7 +221,43 @@ class GeometryTower:
                 rbf = self.rbf(dist)
                 for block in self.blocks:
                     h = block(h, edge_index, rbf, dist, self.cutoff)
-                return global_add_pool(h, batch)
+
+                if self.readout != "interaction" or is_ligand is None:
+                    # Summing an undifferentiated bag of ligand and pocket atoms
+                    # is a learned atom count, which a model can minimise loss
+                    # with while ignoring the geometry entirely. Kept only for
+                    # comparison against the interaction readout.
+                    return global_add_pool(h, batch)
+
+                n_graphs = int(batch.max().item()) + 1 if batch.numel() else 1
+                lig = is_ligand > 0.5
+
+                # Contacts that cross the interface: the quantity actually being
+                # predicted. Pooling over these rather than over atoms means an
+                # atom inventory is no longer a solution.
+                cross = lig[src] != lig[dst]
+                envelope = 0.5 * (torch.cos(math.pi * dist / self.cutoff) + 1.0)
+                pair = self.pair_net(torch.cat([h[src] * h[dst], rbf], dim=-1))
+                pair = pair * envelope.unsqueeze(-1)
+                pair_c, ebatch = pair[cross], batch[src][cross]
+                if pair_c.numel() == 0:  # no contacts within the cutoff
+                    inter_sum = h.new_zeros(n_graphs, hidden_channels)
+                    inter_mean = inter_sum
+                else:
+                    inter_sum = scatter(pair_c, ebatch, dim=0,
+                                        dim_size=n_graphs, reduce="sum")
+                    inter_mean = scatter(pair_c, ebatch, dim=0,
+                                         dim_size=n_graphs, reduce="mean")
+
+                # Mean, not sum: size should not carry the prediction on its own.
+                def _mean(mask):
+                    if not bool(mask.any()):
+                        return h.new_zeros(n_graphs, hidden_channels)
+                    return scatter(h[mask], batch[mask], dim=0,
+                                   dim_size=n_graphs, reduce="mean")
+
+                return self.out_proj(torch.cat(
+                    [inter_sum, inter_mean, _mean(lig), _mean(~lig)], dim=-1))
 
         return _GeometryTower()
 
@@ -225,6 +276,7 @@ class FusionAffinityNet:
         cutoff: float = 6.0,
         num_elements: int = 100,
         geo_node_feat_dim: int = 0,
+        geo_readout: str = "interaction",
         bayesian_hidden: list[int] | None = None,
         prior_sigma: float = 1.0,
         dropout: float = 0.1,
@@ -237,6 +289,7 @@ class FusionAffinityNet:
 
         geo_tower = GeometryTower.build(
             node_feat_dim=geo_node_feat_dim,
+            readout=geo_readout,
             num_elements=num_elements,
             hidden_channels=hidden_channels,
             num_rbf=num_rbf,
@@ -285,7 +338,8 @@ class FusionAffinityNet:
             def forward(self, lig_data, geo_data):
                 h_lig = self._encode_ligand(lig_data)
                 h_geo = self.geo_tower(geo_data.z, geo_data.pos, geo_data.batch,
-                                       getattr(geo_data, "nfeat", None))
+                                       getattr(geo_data, "nfeat", None),
+                                       getattr(geo_data, "is_ligand", None))
                 h = torch.cat([h_lig, h_geo], dim=-1)
                 mu, log_var = self.bayes_head(h)
                 return mu, log_var

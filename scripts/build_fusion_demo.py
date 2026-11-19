@@ -138,6 +138,10 @@ def main(argv=None) -> int:
                     default=True,
                     help="sample only the Bayesian head, leaving the encoders "
                          "deterministic (reproduces the rho=0.07 result)")
+    ap.add_argument("--geo-readout", choices=["interaction", "sum"], default="interaction",
+                    help="'interaction' pools over protein-ligand contacts; 'sum' "
+                         "pools an undifferentiated bag of atoms, which is a "
+                         "learned atom count and was matched by nine descriptors")
     ap.add_argument("--ad-bits", type=int, default=1024,
                     help="fingerprint length for the applicability-domain signal")
     ap.add_argument("--n-structures", type=int, default=28,
@@ -200,6 +204,7 @@ def main(argv=None) -> int:
         ligand_in_channels=7, ligand_edge_dim=7, hidden_channels=args.hidden,
         num_gine_layers=3, num_geo_interactions=2, num_rbf=24, cutoff=6.0,
         geo_node_feat_dim=NEIGHBOR_FEAT_DIM if nf else 0,
+        geo_readout=args.geo_readout,
         bayesian_hidden=[256, 128], prior_sigma=args.prior_sigma, dropout=args.dropout)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 
@@ -329,7 +334,8 @@ def main(argv=None) -> int:
               "config": {"epochs": args.epochs, "kl_weight": args.kl_weight,
                          "mc_samples": args.mc_samples, "hidden": args.hidden,
                          "neighbor_features": nf, "mc_dropout": args.mc_dropout,
-                         "seed": args.seed, "init_seed": init_seed}}
+                         "seed": args.seed, "init_seed": init_seed,
+                         "geo_readout": args.geo_readout}}
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(bundle, allow_nan=False), encoding="utf-8")
     print(f"  wrote {args.out} ({args.out.stat().st_size/1e6:.2f} MB, "

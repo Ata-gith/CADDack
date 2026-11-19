@@ -512,3 +512,86 @@ def test_predict_with_uncertainty_restores_mode_with_mc_dropout():
     m.eval()
     m.predict_with_uncertainty(lig, geo, n_samples=2, mc_dropout=True)
     assert m.training is False, "caller's eval mode must be restored"
+
+
+# --- interaction readout ------------------------------------------------------
+# Sum-pooling an undifferentiated bag of ligand and pocket atoms is a learned
+# atom count, and a random forest on nine scalar descriptors matched the whole
+# two-tower network while it was in use. Pooling over interface contacts removes
+# atom inventory as a viable solution.
+
+@pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit required")
+def test_interaction_readout_ignores_atoms_that_make_no_contacts():
+    """The property the whole change exists for.
+
+    Two inputs share a binding site but differ by hundreds of pocket atoms
+    placed far outside the cutoff, so they make no contacts and cannot matter.
+    Sum pooling moves by many times its own magnitude; the interaction readout
+    should barely move.
+    """
+    import torch
+    from torch_geometric.data import Batch, Data
+
+    from caddack.gnn.geometry import NEIGHBOR_FEAT_DIM
+    from caddack.gnn.models import GeometryTower
+
+    def build_input(n_far):
+        ligand = torch.tensor([[0., 0., 0.], [1.4, 0., 0.], [0., 1.4, 0.]])
+        pocket = torch.tensor([[3.5, 0., 0.], [0., 3.5, 0.], [0., 0., 3.5]])
+        far = torch.randn(n_far, 3) * 40 + 200
+        pos = torch.cat([ligand, pocket, far])
+        n = pos.shape[0]
+        data = Data(z=torch.full((n,), 6, dtype=torch.long), pos=pos)
+        data.nfeat = torch.zeros(n, NEIGHBOR_FEAT_DIM)
+        data.is_ligand = torch.cat([torch.ones(3), torch.zeros(n - 3)])
+        return Batch.from_data_list([data])
+
+    drift = {}
+    for readout in ("sum", "interaction"):
+        torch.manual_seed(0)
+        tower = GeometryTower.build(hidden_channels=32, num_rbf=16, num_interactions=2,
+                                    cutoff=6.0, node_feat_dim=NEIGHBOR_FEAT_DIM,
+                                    readout=readout)
+        tower.eval()
+        with torch.no_grad():
+            base = tower(*(lambda b: (b.z, b.pos, b.batch, b.nfeat, b.is_ligand))(build_input(0)))
+            padded = tower(*(lambda b: (b.z, b.pos, b.batch, b.nfeat, b.is_ligand))(build_input(200)))
+        drift[readout] = float((padded - base).norm() / base.norm())
+
+    assert drift["interaction"] < 0.2, (
+        f"interaction readout drifted {drift['interaction']:.2f} on non-contacting atoms")
+    assert drift["sum"] > drift["interaction"] * 10, (
+        "sum pooling is expected to track atom count; if it no longer does, this "
+        "test is not measuring what it claims")
+
+
+@pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit required")
+def test_both_readouts_build_and_run():
+    import torch
+    from torch_geometric.data import Batch, Data
+
+    from caddack.gnn.datasets import smiles_to_graph_arrays, to_pyg_data
+    from caddack.gnn.geometry import NEIGHBOR_FEAT_DIM
+    from caddack.gnn.models import FusionAffinityNet
+
+    for readout in ("sum", "interaction"):
+        model = FusionAffinityNet.build(
+            ligand_in_channels=7, ligand_edge_dim=7, hidden_channels=32,
+            num_gine_layers=1, num_geo_interactions=1, num_rbf=8, cutoff=6.0,
+            geo_node_feat_dim=NEIGHBOR_FEAT_DIM, geo_readout=readout,
+            bayesian_hidden=[32])
+        lig = Batch.from_data_list([to_pyg_data(smiles_to_graph_arrays("CCO"), y=1.0)])
+        geo = Data(z=torch.tensor([6, 7, 8, 6]), pos=torch.randn(4, 3))
+        geo.nfeat = torch.rand(4, NEIGHBOR_FEAT_DIM)
+        geo.is_ligand = torch.tensor([1., 1., 0., 0.])
+        mu, log_var = model(lig, Batch.from_data_list([geo]))
+        assert torch.isfinite(mu).all() and torch.isfinite(log_var).all()
+
+
+def test_geometry_tower_rejects_an_unknown_readout():
+    pytest.importorskip("torch")
+    pytest.importorskip("torch_geometric")
+    from caddack.gnn.models import GeometryTower
+
+    with pytest.raises(ValueError, match="readout must be"):
+        GeometryTower.build(hidden_channels=8, readout="average")
