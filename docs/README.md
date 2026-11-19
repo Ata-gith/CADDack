@@ -101,11 +101,19 @@ Measured on the same scaffold split:
 
 Calibration is the clear win and it is what MC dropout was expected to fix: the
 intervals were too narrow because a whole source of variance was switched off.
-Accuracy moved a little. **Ranking did not** — *r* is unchanged, consistent with
-earlier findings that more data, more epochs, standardisation and KL tempering all
-left it near 0.58. That ceiling is a representation limit, and first-neighbour
-features were not enough to lift it; richer protein typing or explicit
-interaction features are the next thing to try.
+
+**The accuracy column is not a result.** Training the same architecture on the
+same split with five different initialisations gives R² 0.306 ± 0.083 (range
+0.176–0.390), MAE 1.238 ± 0.086 and *r* 0.602 ± 0.038. The apparent gains above —
+R² +0.033, MAE −0.027 — are a third of a standard deviation, so first-neighbour
+features did **not** measurably improve accuracy. Two single runs were compared
+when seed noise is several times the effect. Only the calibration change is
+demonstrated.
+
+Ranking is unchanged either way, consistent with earlier findings that more data,
+more epochs, standardisation and KL tempering all left *r* near 0.58-0.60. That
+ceiling looks like a representation limit; explicit interaction features are the
+next thing to try.
 
 Per-prediction discrimination is still poor (ρ = 0.10, and the quintile trend is
 not monotonic). One split, so read it as indicative.
