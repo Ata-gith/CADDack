@@ -1,286 +1,135 @@
 # CADDack
 
-A modular toolkit for computer-aided drug design: data fetching, QSAR featurisation,
-2D message-passing GNNs, and a two-tower Bayesian model that predicts protein–ligand
-binding affinity with calibrated uncertainty.
+A computational drug-design toolkit: fetch molecules, featurise them, train models
+that predict binding affinity, and generate docked poses — with honest uncertainty
+and honest evaluation throughout.
+
+**[→ Try the live demo](https://ata-gith.github.io/CADDack/)** — predict a molecule's
+water solubility in your browser and watch the model admit when it's out of its depth.
+No install, nothing uploaded.
+
+---
+
+## What it does
 
 ```
 src/caddack/
-├── qsar/      SMILES featurisation (descriptors + ECFP), scaffold splitting
-├── gnn/       molecular graphs, GCN/GINE models, Bayesian fusion model, training
-├── docking/   AutoDock Vina pose generation (receptor/ligand prep, search box)
-└── fetch/     ChEMBL / UniProt / RCSB PDB downloads
+├── qsar/      SMILES → features, scaffold splitting, curation, applicability domain
+├── gnn/       molecular graphs, GCN/GINE, a Bayesian two-tower affinity model
+├── docking/   AutoDock Vina pose generation
+└── fetch/     ChEMBL / UniProt / RCSB downloads
 ```
+
+Four things it tries to do properly:
+
+- **Honest splits.** Train/test splits hold out whole Bemis–Murcko scaffolds, so test
+  molecules are structurally novel rather than cousins of the training set.
+- **Honest uncertainty.** The affinity model is Bayesian and separates *epistemic*
+  uncertainty (which shrinks with more data) from *aleatoric* noise (which doesn't).
+- **Honest scope.** An applicability domain flags predictions on chemistry the model
+  never saw, instead of extrapolating confidently.
+- **Honest reporting.** Metrics come from repeated splits with a standard deviation,
+  and every number records which split produced it.
 
 ## Install
 
 ```bash
-pip install -e .              # core (numpy, pandas, scikit-learn)
+pip install -e .              # core
 pip install -e ".[gnn]"       # + torch, torch-geometric, rdkit
 pip install -e ".[docking]"   # + vina, meeko, rdkit
 ```
 
-`torch-scatter` is intentionally not part of `[gnn]`: it builds from source and
-imports torch during its own build, so it breaks a clean install. Nothing needs
-it — the geometry tower falls back to `torch_geometric.utils.scatter`. Install
-`.[gnn-fast]` after torch if you want the compiled kernels.
+Or `conda env create -f environment.yml` — conda-forge ships RDKit, PyTorch and Vina
+as binaries, which avoids building Vina from source. Pinned versions in
+`requirements.lock`.
 
-Or with conda, which carries RDKit, PyTorch and Vina as binary packages:
-
-```bash
-conda env create -f environment.yml && conda activate caddack && pip install -e .
-```
-
-For a reproducible environment use the pinned lockfile: `pip install -r requirements.lock`.
-
-Optional dependencies are lazy: every module **imports** without them and raises a clear
-install hint only at call time.
-
-## Modules
-
-### `caddack.qsar` — featurisation and splitting
-
-| Module | What it does |
-|---|---|
-| `descriptors.py` | SMILES → features. Salt stripping, canonicalisation, 6 physicochemical descriptors (`MolWt`, `LogP`, `TPSA`, `NumHBD`, `NumHBA`, `NumRotBonds`) and ECFP fingerprint bits. `featurize_dataframe()` featurises a whole CSV, flagging invalid rows instead of raising. |
-| `split.py` | `scaffold_split()` — group molecules by Murcko scaffold and hold out whole scaffold groups, so test compounds are chemically novel. Much harder (and more honest) than a random split. Returns a `SplitReport` recording the fraction actually achieved. |
-| `standardize.py` | ChEMBL-style curation: cleanup → largest fragment → neutralise → normalise, with optional tautomer canonicalisation. Two spellings of one compound otherwise become two records, which is a leakage path. |
-| `applicability.py` | Applicability domain — `SimilarityAD` (nearest-neighbour Tanimoto) and `LeverageAD` (Williams plot). Answers whether a prediction is inside the training chemistry. |
-| `train_qsar.py` | Random-forest baselines with repeated scaffold-split CV, reported as mean ± sd with Pearson *r*. |
-
-### `caddack.gnn` — graph neural networks
-
-| Module | What it does |
-|---|---|
-| `datasets.py` | SMILES → graph tensors. 7-dim atom features, 7-dim bond features, bidirectional edges. Unparseable SMILES are skipped with a warning rather than aborting a run. |
-| `models.py` | `MolecularGCN` (fast baseline), `MolecularGINE` (uses bond features — preferred for molecules), and `FusionAffinityNet` (the two-tower affinity model). |
-| `bayes.py` | Bayes-by-Backprop layers and the ELBO objective. Weights are Gaussian posteriors sampled via the reparameterisation trick; the loss is a per-example NLL plus a KL term scaled by the dataset size. |
-| `geometry.py` | PDB/mol2 parsing and binding-pocket extraction — turns a protein + ligand pair into a 3D `GeometryRecord`. |
-| `train.py` | `train_from_csv()` for ligand-only models, `train_fusion_from_complexes()` for the fusion model. |
-
-All models use a factory pattern (`Model.build(...)`) so the modules stay importable
-without torch.
-
-### `caddack.docking` — pose generation
-
-| Module | What it does |
-|---|---|
-| `prepare.py` | Turns the inputs into what Vina needs: SMILES → 3D conformer → ligand PDBQT (RDKit + Meeko), receptor PDB → cleaned PDBQT, and a search box from a reference ligand or pocket. |
-| `vina.py` | Runs AutoDock Vina through its Python bindings and returns ranked `DockedPose` objects. `pose_to_mol()` converts a pose back to RDKit; `pose_rmsd()` gives symmetry-aware RMSD for validation. |
-
-The affinity model scores a *pose*, which normally means it needs a crystal
-structure. Docking supplies that pose for molecules without one, so the two fit
-together: `fetch → dock → score`.
-
-```python
-from caddack.docking import dock_smiles, box_from_reference_ligand
-
-box = box_from_reference_ligand("1q1m_ligand.mol2")   # centre on a known ligand
-poses = dock_smiles("1q1m_protein.pdb", "CC(=O)Oc1ccccc1C(=O)O", box=box)
-print(poses[0].score)          # kcal/mol, more negative is stronger
-```
-
-Receptor preparation prefers Meeko's residue templates, which add polar hydrogens
-and give correct donor/acceptor typing. That needs a **complete protein** — a
-truncated pocket file falls back to a cruder element-based writer and warns.
-Histidines default to the neutral HIE tautomer, since crystal structures carry no
-hydrogens to disambiguate them.
-
-### The fusion model
-
-`FusionAffinityNet` combines two encoders and a Bayesian head:
-
-- **Tower 1 (2D)** — a GINE network over the ligand graph.
-- **Tower 2 (3D)** — a geometry network over pocket + ligand atoms with radial-basis
-  distance features.
-- **Bayesian head** — outputs a mean affinity and a log-variance, giving predictive
-  uncertainty split into *epistemic* (model, shrinks with more data) and *aleatoric*
-  (measurement noise, irreducible).
-
-The mathematics — what data enters, the objective, and how it is minimised — is written up
-in [`docs/elbo_math.pdf`](docs/elbo_math.pdf) (source: `docs/elbo_math.tex`).
-
-## CLI
-
-```bash
-caddack <subcommand> --help
-```
-
-| Subcommand | Purpose |
-|---|---|
-| `fetch` | Download ligands/sequences/structures from ChEMBL, UniProt, RCSB PDB. |
-| `qsar-descriptors` | Featurise a CSV of SMILES → parquet/CSV. |
-| `qsar-train` | Train a random-forest QSAR baseline. |
-| `train-gnn` | Train `MolecularGCN`/`MolecularGINE` from a SMILES CSV. |
-| `train-fusion` | Train the two-tower Bayesian affinity model. |
-| `dock` | Dock a SMILES ligand into a receptor PDB with AutoDock Vina. |
-
-## Benchmarks
-
-### 2D GNNs on MoleculeNet
-
-```bash
-python scripts/benchmark_molnet.py --download \
-  --data-dir /tmp/molnet --outdir /tmp/molnet_runs --epochs 40 --model gine
-```
-
-Random 80/20 split, 40 epochs, hidden=128, 3 layers:
-
-| Dataset | Task | N | GINE | GCN |
-|---|---|---|---|---|
-| ESOL | regression | 1,128 | MAE 0.90 / R² 0.74 | MAE 1.13 / R² 0.59 |
-| FreeSolv | regression | 642 | MAE 1.96 / R² 0.57 | MAE 2.22 / R² 0.34 |
-| BBBP | classification | 2,039 | AUC 0.834 | AUC 0.777 |
-| BACE | classification | 1,513 | AUC 0.721 | AUC 0.712 |
-
-GINE wins on every dataset, as expected — it consumes bond features that GCN ignores.
-
-### Fusion model on PDBbind
-
-```bash
-# one-time: download (~2 GB) and cache the parsed complexes
-python scripts/benchmark_pdbbind.py --data-dir /tmp/pdbbind --download --build
-
-# CASF-style: train on refined-minus-core, test on the core set
-python scripts/benchmark_pdbbind.py --data-dir /tmp/pdbbind --refined-only \
-  --split core --core-csv /tmp/pdbbind/pdbbind_core_df.csv.gz --epochs 15 --prefix refined
-```
-
-Affinity in p*K* units (−log *K*d/*K*i):
-
-| Training data | Split | Train/Test | MAE | R² | Pearson r | Coverage 1σ/2σ |
-|---|---|---|---|---|---|---|
-| Refined, 15 ep | core holdout | 3,511 / 188 | 1.28 | 0.47 | 0.69 | 64% / 94% |
-| Refined, 30 ep | core holdout | 3,511 / 188 | 1.34 | 0.42 | 0.73 | 66% / 96% |
-| General, 10 ep | core holdout | 6,000 / 193 | 1.34 | 0.44 | 0.68 | 67% / 96% |
-| Refined, 20 ep | **scaffold** | 2,959 / 740 | 1.32 | 0.31 | 0.57 | 67% / 94% |
-| *mean predictor* | — | — | 1.82 | 0.00 | — | — |
-
-
-| Scaffold split, 20 epochs | MAE | RMSE | R² | Pearson r | Coverage 1σ/2σ |
-|---|---|---|---|---|---|
-| raw target, `kl_weight=1.0` | 1.59 | 2.04 | −0.04 | 0.60 | 54% / 84% |
-| z-scored target | 1.48 | 1.78 | 0.21 | 0.58 | 68% / 96% |
-| z-scored + `--kl-weight 0.01` | **1.32** | **1.66** | **0.31** | 0.57 | 67% / 94% |
-
-**Target standardisation.** Training on raw affinities left a systematic +1.05 p*K* offset,
-since the Bayesian head is regularised toward a zero-mean prior while being asked to emit
-values centred near 6.4. Standardisation uses train-set statistics only and is undone at
-prediction time (`y_mean`/`y_std` live in `config.json`).
-
-**KL tempering.** The Bayesian head carries ~99k weight posteriors but trains on ~3k
-complexes, so the correctly-scaled ELBO is roughly 98% KL and 2% data fit. Lowering
-`--kl-weight` to 0.01–0.1 rebalances it; most of the benefit is simply leaving 1.0.
-
-Worth noting what these did *not* change: Pearson r stays near 0.58 throughout. Both
-settings fix calibration — the offset and the scale — rather than the ranking. R² now sits
-close to r², so there is little left to gain from that direction, and the remaining limit
-looks like a representation one. The geometry tower currently sees only atomic number and
-interatomic distance, with no explicit hydrogen bonds, hydrophobic contacts, or residue
-identity.
-
-#### How this compares to published models
-
-For context, some published results on the CASF-2016 benchmark:
-
-| Model | Pearson r | RMSE |
-|---|---|---|
-| AutoDock Vina | 0.57 | — |
-| Classical scoring functions (X-Score et al.) | ≲0.61 | — |
-| Pafnucy | 0.78 | 1.42 |
-| OnionNet / DeepAtom | 0.81 | 1.28 / 1.32 |
-| OnionNet-2 | 0.86 | 1.16 |
-
-Our most comparable figure is the core-holdout r ≈ 0.73 (RMSE ≈ 1.68). That sits above
-classical scoring functions and below the tuned deep models, which is a fair reflection of
-where this project is: an untuned model trained for 15–30 CPU epochs, with a deliberately
-simple feature set, against methods that have had far more engineering invested in them.
-
-Two caveats, in both directions. Ours is not a like-for-like comparison — we test on the
-~190-complex DeepChem core set rather than the official 285-complex CASF-2016 set, so
-please treat the table as rough context rather than a ranking. And recent work reports that
-[CASF-2016 overlaps heavily with PDBbind training data](https://academic.oup.com/bioinformatics/article/41/2/btaf040/7985708),
-so [published figures may be inflated by train–test leakage](https://www.nature.com/articles/s42256-025-01124-5).
-That applies to our core-holdout number too; it is a reason to read all of these
-cautiously, not a claim about the gap.
-
-### Docking: re-docking accuracy
-
-Docking is validated by putting each crystal ligand back into its own receptor and
-measuring RMSD to the known pose — below 2 Å is the usual success criterion.
-
-```bash
-python scripts/benchmark_redocking.py --data-dir /tmp/pdbbind --n 30
-```
-
-30 randomly sampled refined-set complexes, 9 poses each. All 30 docked without
-error in every configuration; what changes is accuracy:
-
-| Protocol | Top pose < 2 Å | Any of 9 < 2 Å | Median RMSD |
-|---|---|---|---|
-| re-embedded ligand, `exhaustiveness=8` | 43% | 70% | 2.82 Å |
-| crystal conformer, `exhaustiveness=8` | 53% | 83% | 1.50 Å |
-| **crystal conformer, `exhaustiveness=32`** (defaults) | **60%** | **90%** | **1.47 Å** |
-
-Two things account for the difference, and the larger one is a protocol subtlety
-worth knowing about:
-
-- **Vina does not change ring conformations.** It samples position, orientation
-  and acyclic torsions, but ring puckers come from the input file. Re-generating
-  each ligand's conformer with ETKDG therefore capped the achievable RMSD
-  whenever the generated pucker differed from the crystal — a sugar (`1np0`) sat
-  0.67 Å from the right position yet scored 4.37 Å RMSD, and a macrocycle
-  (`1nt1`) went from 7.67 Å to 0.38 Å once started from the deposited conformer.
-  Re-docking conventionally starts from the crystal conformer, which is now the
-  default; `--start embed` runs the harder variant that also tests conformer
-  generation.
-- **Search effort.** Raising `--exhaustiveness` from Vina's default of 8 to 32
-  adds about 7 points for roughly 4× the runtime.
-
-The residual gap between 60% and 90% is the scoring function ranking poses it has
-already generated — which is exactly where re-scoring with the fusion model would
-come in.
-
-This matters beyond the benchmark: `dock_smiles()` builds its conformer from
-SMILES, so for a ligand with flexible or macrocyclic rings, consider generating
-several ring conformers and docking each.
-
-### Synthetic speed / calibration
-
-```bash
-python scripts/benchmark_fusion.py --n-complexes 64 --epochs 20 --out results/bench.json
-```
-
-Uses synthetic complexes, so it validates throughput, the uncertainty decomposition and
-the training loop — **not** predictive quality.
+Optional dependencies are lazy: every module imports without them and raises a clear
+install hint only when you actually call something that needs them.
 
 ## Quickstart
 
 ```bash
-# 1. fetch a target's ligands
-caddack fetch --chembl-target CHEMBL203 --min-n 100 --emit-mols-csv data/egfr.csv
+# featurise a CSV of SMILES, then train a baseline with repeated scaffold CV
+caddack qsar-descriptors --csv mols.csv --smiles-col SMILES --out feats.parquet
+caddack qsar-train --parquet feats.parquet --target pIC50 --n-repeats 5
 
-# 2. featurise and train a QSAR baseline
-caddack qsar-descriptors --csv data/egfr.csv --smiles-col SMILES --out data/feats.parquet
-caddack qsar-train --parquet data/feats.parquet --target pIC50 --split scaffold
-
-# 3. train a ligand GNN
-caddack train-gnn --csv data/egfr.csv --smiles-col SMILES --target-col pIC50 \
-  --model gine --task regression
+# dock a ligand into a receptor
+caddack dock --receptor protein.pdb --smiles "CC(=O)Oc1ccccc1C(=O)O" \
+             --reference-ligand crystal_ligand.sdf
 ```
+
+```python
+from caddack.qsar.applicability import SimilarityAD
+
+ad = SimilarityAD.fit(train_fingerprints)
+ad.in_domain(query_fingerprints)      # False => don't trust the prediction
+```
+
+Run `caddack --help` for all subcommands: `fetch`, `qsar-descriptors`, `qsar-train`,
+`train-gnn`, `train-fusion`, `dock`.
+
+## How well does it work?
+
+**Solubility (ESOL, 1,128 molecules, scaffold split)** — the live demo's model:
+
+| R² | MAE | Pearson *r* |
+|---|---|---|
+| 0.78 | 0.74 log units | 0.90 |
+
+**Binding affinity (PDBbind, p*K* units)** — the Bayesian two-tower model:
+
+| Training set | Split | MAE | R² | Pearson *r* | Coverage 1σ / 2σ |
+|---|---|---|---|---|---|
+| Refined | core holdout | 1.28 | 0.47 | 0.69 | 64% / 94% |
+| Refined | **scaffold** | 1.32 | 0.31 | 0.57 | 67% / 94% |
+| *predict the mean* | — | 1.82 | 0.00 | — | — |
+
+Uncertainty estimates are close to calibrated (ideal is 68% / 95%). For context, on
+CASF-style core holdouts classical scoring functions reach Pearson *r* ≈ 0.57–0.61 and
+tuned deep models 0.78–0.86; this sits between them, which is a fair reflection of an
+untuned model with a deliberately simple feature set. That comparison is rough — ours
+uses a different core set — and those benchmarks are
+[known to overlap with PDBbind training data](https://www.nature.com/articles/s42256-025-01124-5),
+so published figures and ours alike deserve a sceptical read. The scaffold row is the
+one to judge it by.
+
+**Re-docking (30 PDBbind complexes)** — fraction reproducing the crystal pose below 2 Å:
+
+| Protocol | Top pose | Any of 9 |
+|---|---|---|
+| re-embedded ligand, `exhaustiveness=8` | 43% | 70% |
+| **crystal conformer, `exhaustiveness=32`** | **60%** | **90%** |
+
+The gap between those rows is mostly a lesson: Vina samples torsions but keeps ring
+conformations fixed, so starting from a re-embedded conformer costs real accuracy.
+
+**2D GNNs on MoleculeNet** (random split): GINE reaches ESOL R² 0.74, BBBP AUC 0.834,
+BACE AUC 0.721 — beating GCN on every dataset, as expected, since it uses bond features.
+
+Reproduce any of these with the scripts in `scripts/`.
 
 ## Tests
 
 ```bash
-pytest tests/ -q          # optional-dependency tests skip automatically
+pip install -e ".[gnn]" && pytest
 ```
+
+Tests requiring optional dependencies skip cleanly without them. CI builds a wheel and
+tests *that*, with and without the `[gnn]` extra, so the installed package is what gets
+checked rather than the working tree.
 
 ## Further reading
 
-Both the LaTeX source and the rendered PDF are committed for each document, so
-they are readable on GitHub without a TeX install. They account for most of the
-repository's ~1 MB.
+- **[`docs/README.md`](docs/README.md)** — how the browser demo works, and why feature
+  parity between Python and RDKit.js is load-bearing.
+- **[`docs/elbo_math.pdf`](docs/elbo_math.pdf)** — the ELBO objective end to end: what
+  enters it and how it's minimised.
+- **[`docs/caddack_gnn_math.pdf`](docs/caddack_gnn_math.pdf)** — full layer mathematics
+  for both towers.
+- **[`docs/autodock_tutorial.pdf`](docs/autodock_tutorial.pdf)** — a practical docking
+  guide, including nine pitfalls found while building this.
+- **[`CHANGELOG.md`](CHANGELOG.md)** — development history.
 
-- [`docs/elbo_math.pdf`](docs/elbo_math.pdf) — the ELBO objective end to end.
-- [`docs/caddack_gnn_math.pdf`](docs/caddack_gnn_math.pdf) — full mathematics of every layer.
-- [`CHANGELOG.md`](CHANGELOG.md) — change history.
+## Licence
+
+MIT.

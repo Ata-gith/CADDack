@@ -32,3 +32,4 @@ models/
 
 # Raw data must never live inside the package
 src/caddack/data/
+data/raw/molnet/

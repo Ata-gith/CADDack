@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Does the model actually know? — CADDack</title>
+<meta name="description" content="A molecular property model that tells you when it is out of its depth. Runs entirely in your browser.">
+<style>
+:root{
+  --bg:#fbfaf8; --panel:#fff; --ink:#1a1a1f; --muted:#6b6b76; --line:#e5e3df;
+  --accent:#3b5bdb; --good:#2f9e63; --ok:#5aa469; --warn:#d99100; --bad:#d1495b;
+  --radius:14px; --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#141418; --panel:#1c1c22; --ink:#ecebe8; --muted:#9a9aa5; --line:#2e2e37;
+  --accent:#7d93f0; --good:#4ec287; --ok:#6fbf86; --warn:#e8b34a; --bad:#ec6b7c;
+}}
+:root[data-theme="dark"]{
+  --bg:#141418; --panel:#1c1c22; --ink:#ecebe8; --muted:#9a9aa5; --line:#2e2e37;
+  --accent:#7d93f0; --good:#4ec287; --ok:#6fbf86; --warn:#e8b34a; --bad:#ec6b7c;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased}
+.wrap{max-width:900px;margin:0 auto;padding:40px 20px 80px}
+header{margin-bottom:28px}
+h1{font-size:clamp(1.6rem,4vw,2.3rem);line-height:1.2;margin:0 0 10px;letter-spacing:-.02em}
+.sub{color:var(--muted);margin:0;max-width:62ch}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+.panel + .panel{margin-top:18px}
+
+form{display:flex;gap:10px;flex-wrap:wrap}
+input[type=text]{flex:1 1 320px;min-width:0;padding:12px 14px;font:15px/1.4 var(--mono);
+  color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px}
+input[type=text]:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:transparent}
+button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);
+  background:var(--panel);color:var(--ink);padding:12px 18px;transition:.15s}
+button:hover{border-color:var(--accent);color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.primary:hover{filter:brightness(1.08);color:#fff}
+
+.presets{margin-top:16px}
+.presets p{margin:0 0 8px;font-size:.82rem;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chips button{padding:7px 13px;font-size:.88rem;border-radius:20px}
+.chips .spicy{border-style:dashed}
+
+.grid{display:grid;grid-template-columns:minmax(0,260px) minmax(0,1fr);gap:24px;align-items:start}
+@media(max-width:640px){.grid{grid-template-columns:1fr}}
+.molbox{background:var(--bg);border:1px solid var(--line);border-radius:12px;
+  padding:10px;display:flex;align-items:center;justify-content:center;min-height:200px}
+.molbox svg{max-width:100%;height:auto}
+.canon{font:12px/1.5 var(--mono);color:var(--muted);word-break:break-all;margin-top:8px;text-align:center}
+
+.readout{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.readout .value{font-size:3rem;font-weight:650;letter-spacing:-.03em;line-height:1}
+.readout .interval{font-size:1.25rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.units{color:var(--muted);font-size:.9rem;margin:6px 0 0}
+.plain{margin:10px 0 0;font-size:1.02rem}
+
+.bar{position:relative;height:10px;background:var(--bg);border:1px solid var(--line);
+  border-radius:99px;margin:20px 0 6px;overflow:hidden}
+.bar .fill{position:absolute;top:0;bottom:0;background:color-mix(in srgb,var(--accent) 28%,transparent)}
+.bar .mark{position:absolute;top:-3px;width:3px;height:16px;background:var(--accent);border-radius:2px}
+.scale{display:flex;justify-content:space-between;font-size:.74rem;color:var(--muted);font-variant-numeric:tabular-nums}
+
+.gauge{margin-top:22px;border-radius:12px;padding:16px;border:1px solid var(--line);
+  border-left-width:4px;background:var(--bg)}
+.gauge.good{border-left-color:var(--good)} .gauge.ok{border-left-color:var(--ok)}
+.gauge.warn{border-left-color:var(--warn)} .gauge.bad{border-left-color:var(--bad)}
+.gauge .label{font-weight:650;margin:0 0 4px}
+.gauge.good .label{color:var(--good)} .gauge.ok .label{color:var(--ok)}
+.gauge.warn .label{color:var(--warn)} .gauge.bad .label{color:var(--bad)}
+.gauge .note{margin:0;font-size:.93rem;color:var(--muted)}
+.gauge .caveat{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);color:var(--warn)}
+.gauge .caveat strong{color:var(--warn)}
+.meter{height:7px;border-radius:99px;background:var(--line);margin:12px 0 6px;overflow:hidden}
+.meter span{display:block;height:100%;border-radius:99px;background:currentColor}
+.gauge.good .meter span{background:var(--good)} .gauge.ok .meter span{background:var(--ok)}
+.gauge.warn .meter span{background:var(--warn)} .gauge.bad .meter span{background:var(--bad)}
+.meta{font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums}
+
+h2{font-size:1rem;margin:0 0 14px;letter-spacing:.01em}
+.nbs{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+.nb{margin:0;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px;text-align:center}
+.nbsvg{min-height:110px;display:flex;align-items:center;justify-content:center}
+.nbsvg svg{max-width:100%;height:auto}
+.nb figcaption{font-size:.78rem;color:var(--muted);line-height:1.5}
+.nb figcaption strong{color:var(--ink);font-size:.9rem}
+.nb figcaption span{display:block;font-variant-numeric:tabular-nums}
+
+.facts{display:flex;gap:26px;flex-wrap:wrap;font-size:.86rem;color:var(--muted);margin-top:4px}
+.facts b{color:var(--ink);font-variant-numeric:tabular-nums}
+footer{margin-top:28px;font-size:.88rem;color:var(--muted)}
+footer h2{color:var(--ink)}
+footer code{font:12px/1.4 var(--mono);background:var(--panel);border:1px solid var(--line);
+  padding:1px 5px;border-radius:5px}
+footer a{color:var(--accent)}
+.err{color:var(--bad);margin:14px 0 0;font-size:.92rem}
+.loading{color:var(--muted);text-align:center;padding:40px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Does the model actually know?</h1>
+  <p class="sub">Most property predictors hand you a confident number whatever you feed them.
+  This one predicts water solubility <em>and</em> tells you when the molecule is outside the
+  chemistry it learned from. Try to find something it admits it can't handle.</p>
+</header>
+
+<p class="loading" id="loading">Loading RDKit and the model…</p>
+
+<div id="app" hidden>
+  <div class="panel">
+    <form id="form">
+      <input type="text" id="smiles" spellcheck="false" autocomplete="off"
+             aria-label="SMILES string" placeholder="Paste a SMILES string…">
+      <button type="submit" class="primary">Predict</button>
+    </form>
+    <p class="err" id="error" hidden></p>
+
+    <div class="presets">
+      <p>Everyday molecules</p>
+      <div class="chips">
+        <button data-smiles="CC(=O)Oc1ccccc1C(=O)O">Aspirin</button>
+        <button data-smiles="CC(C)Cc1ccc(cc1)C(C)C(=O)O">Ibuprofen</button>
+        <button data-smiles="CN1C=NC2=C1C(=O)N(C)C(=O)N2C">Caffeine</button>
+        <button data-smiles="OCC1OC(O)C(O)C(O)C1O">Glucose</button>
+      </div>
+    </div>
+
+    <div class="presets">
+      <p>Real medicines it was never shown</p>
+      <div class="chips">
+        <button data-smiles="CN1CC[C@]23c4c5ccc(O)c4O[C@H]2[C@@H](O)C=C[C@H]3[C@H]1C5">Morphine</button>
+        <button data-smiles="N.N.Cl[Pt]Cl">Cisplatin</button>
+        <button data-smiles="CC(C)c1c(C(=O)Nc2ccccc2)c(c3ccccc3)c(c4ccc(F)cc4)n1CC[C@@H](O)C[C@@H](O)CC(=O)O">Atorvastatin</button>
+        <button data-smiles="CC1(C)S[C@@H]2[C@H](NC(=O)Cc3ccccc3)C(=O)N2[C@H]1C(=O)O">Penicillin G</button>
+      </div>
+    </div>
+
+    <div class="presets">
+      <p>Try to break it</p>
+      <div class="chips">
+        <button class="spicy" data-smiles="[Na+].[Cl-]">Table salt</button>
+        <button class="spicy" data-smiles="c12c3c4c5c1c1c6c7c2c2c8c3c3c9c4c4c%10c5c5c1c1c6c6c%11c7c2c2c7c8c3c3c8c9c4c4c9c%10c5c5c1c1c6c6c%11c2c2c7c3c3c8c4c4c9c5c1c1c6c2c3c41">Buckyball</button>
+        <button class="spicy" data-smiles="OC(=O)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)F">PFOA</button>
+        <button class="spicy" data-smiles="[CH-]1C=CC=C1.[CH-]1C=CC=C1.[Fe+2]">Ferrocene</button>
+        <button class="spicy" data-smiles="CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC">A 30-carbon chain</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="results" hidden>
+    <div class="grid">
+      <div>
+        <div class="molbox" id="depiction"></div>
+        <div class="canon" id="canonical"></div>
+      </div>
+
+      <div>
+        <div class="readout">
+          <span class="value" id="value">—</span>
+          <span class="interval" id="interval"></span>
+        </div>
+        <p class="units">predicted log solubility (log S, mol/L) · 95% interval from the spread across 100 trees</p>
+        <p class="plain" id="plain"></p>
+
+        <div class="bar">
+          <div class="fill" id="barFill"></div>
+          <div class="mark" id="barMark"></div>
+        </div>
+        <div class="scale"><span>−11 (insoluble)</span><span>+2 (very soluble)</span></div>
+
+        <div class="gauge" id="gauge">
+          <p class="label" id="gaugeLabel"></p>
+          <div class="meter"><span id="gaugeFill"></span></div>
+          <p class="meta">nearest training molecule: <b id="simValue"></b> Tanimoto ·
+             in-domain threshold <b id="simThreshold"></b> ·
+             tree spread <b id="spread"></b> log units</p>
+          <p class="note" id="gaugeNote"></p>
+          <p class="note caveat" id="caveat" hidden><strong>But don't trust that gauge here.</strong>
+          Long flexible chains saturate the fingerprint: a 30-carbon chain sets the same bits as a
+          20-carbon one, so the similarity check reports a close match it hasn't earned. The domain
+          check has blind spots of its own.</p>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:26px">
+      <h2>Closest molecules it was trained on</h2>
+      <div class="nbs" id="neighbours"></div>
+    </div>
+  </div>
+
+  <footer class="panel">
+    <h2>What this actually is</h2>
+    <p>A random forest trained on <b id="trainN"></b> molecules from the ESOL
+    solubility dataset, held out by <strong>Bemis–Murcko scaffold</strong> rather than at
+    random, so the test molecules were structurally novel. On that honest split it reaches
+    R² <b id="r2"></b> and a mean absolute error of <b id="mae"></b> log units.</p>
+
+    <p>The interval is the spread of the 100 trees, and the domain check is the Tanimoto
+    similarity to the nearest training molecule — below the threshold, the training set simply
+    contains nothing like your input. Both are computed live: RDKit is compiled to WebAssembly
+    and the forest is evaluated in JavaScript, so nothing is sent anywhere and there is no server.</p>
+
+    <p><strong>Caveats worth stating.</strong> Solubility is only one property, measured
+    under specific conditions; ESOL is small and skews toward drug-like organic molecules.
+    Inorganics, salts and polymers are outside its scope by construction, which is exactly why
+    the domain gauge exists. A confident-looking number with a red gauge is still a guess.</p>
+
+    <p>Part of <a href="https://github.com/Ata-gith/CADDack">CADDack</a>. The same
+    featurisation, scaffold splitting and applicability-domain code runs in the Python package —
+    see <code>caddack.qsar</code>.</p>
+  </footer>
+</div>
+
+</div>
+<script src="RDKit_minimal.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
