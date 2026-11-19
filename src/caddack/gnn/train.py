@@ -179,13 +179,26 @@ def _require_fusion_deps():
     return torch, F, Data, DataLoader, mean_absolute_error, r2_score
 
 
-def _build_geo_pyg(ex: ComplexExample):
-    """Build a torch-geometric Data for the geometry tower."""
+def _build_geo_pyg(ex: ComplexExample, with_neighbors: bool = True):
+    """Build a torch-geometric Data for the geometry tower.
+
+    ``with_neighbors`` attaches first-coordination-shell features, which also
+    tell the tower which atoms are ligand and which are pocket -- it otherwise
+    receives one undifferentiated point cloud. They are computed here rather
+    than stored on the record so that caches written before this existed stay
+    usable.
+    """
     torch, _, Data, *_ = _require_fusion_deps()
     geo = ex.geo
     z = torch.tensor(geo.atomic_nums, dtype=torch.long)
     pos = torch.tensor(geo.positions, dtype=torch.float)
-    return Data(z=z, pos=pos)
+    data = Data(z=z, pos=pos)
+    if with_neighbors:
+        from caddack.gnn.geometry import neighbor_features
+
+        feats = neighbor_features(geo.atomic_nums, geo.positions, geo.n_ligand)
+        data.nfeat = torch.tensor(feats, dtype=torch.float)
+    return data
 
 
 def train_fusion_from_complexes(

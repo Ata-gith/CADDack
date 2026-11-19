@@ -69,6 +69,47 @@ cases where the model was most and least certain.
 The pocket is everything within 6 Å of the ligand, so the model never sees the
 wider protein.
 
+## Two fixes to the affinity model, and what they bought
+
+**Monte Carlo dropout during sampling.** `predict_with_uncertainty` previously
+called `.eval()`, which disabled dropout in the encoders. Across 30 samples only
+the Bayesian head's ~198k weights varied; the ~204k encoder parameters produced
+an identical embedding every pass. The epistemic term could therefore describe
+uncertainty about the final linear map, but never that a complex was unlike
+anything in training. It now keeps dropout live (`mc_dropout=True`, the default);
+pass `--no-mc-dropout` to reproduce the old behaviour.
+
+**First-neighbour geometry features.** The tower embedded atomic number alone, so
+a backbone carbonyl oxygen, a serine hydroxyl and a buried water were one token —
+and nothing told it which atoms were ligand and which were protein. Each atom now
+also carries its coordination number, the element composition of its bonded
+neighbours, their distances, and a ligand flag. Bond length does most of the work:
+on PDBbind, oxygens with a single carbon neighbour split 82% below 1.30 Å
+(carbonyl, acceptor) and 17% above 1.36 Å (hydroxyl, also a donor). Computed from
+coordinates in `neighbor_features`, so existing caches stay valid.
+
+Measured on the same scaffold split:
+
+| | before | after |
+|---|---|---|
+| 1σ coverage (ideal 68%) | 60.5% | **69.1%** |
+| 2σ coverage (ideal 95%) | 91.9% | **96.9%** |
+| R² | 0.303 | 0.336 |
+| MAE (pK) | 1.255 | 1.228 |
+| Pearson *r* | 0.604 | 0.601 |
+| Spearman ρ(σ, error) | 0.071 | 0.100 |
+
+Calibration is the clear win and it is what MC dropout was expected to fix: the
+intervals were too narrow because a whole source of variance was switched off.
+Accuracy moved a little. **Ranking did not** — *r* is unchanged, consistent with
+earlier findings that more data, more epochs, standardisation and KL tempering all
+left it near 0.58. That ceiling is a representation limit, and first-neighbour
+features were not enough to lift it; richer protein typing or explicit
+interaction features are the next thing to try.
+
+Per-prediction discrimination is still poor (ρ = 0.10, and the quintile trend is
+not monotonic). One split, so read it as indicative.
+
 ## Updating RDKit
 
 The WASM build is vendored rather than loaded from a CDN, so the page keeps

@@ -129,16 +129,30 @@ function drawReliability() {
   const ratio = R[R.length - 1].mean_abs_error / R[0].mean_abs_error;
   const m = D.metrics;
 
+  // The quintile ratio compares only the end bins. If the bins in between do not
+  // rise in order, that ratio flatters a trend the chart plainly does not show,
+  // so say which it is rather than quoting the convenient number.
+  const errs = R.map((b) => b.mean_abs_error);
+  const monotonic = errs.every((v, i) => i === 0 || v >= errs[i - 1]);
+
   $("reliabilityVerdict").innerHTML =
     `<strong>Partly, and it's worth separating two claims.</strong> The intervals are
-     roughly honest <em>in aggregate</em>: ${(m.coverage_1sigma * 100).toFixed(0)}% of
+     well calibrated <em>in aggregate</em>: ${(m.coverage_1sigma * 100).toFixed(0)}% of
      measurements fall inside 1σ and ${(m.coverage_2sigma * 100).toFixed(0)}% inside 2σ,
-     against an ideal of 68% and 95%. But telling <em>which individual</em> predictions are
-     bad is a harder job, and here it barely manages: error rises only
-     ${ratio.toFixed(2)}× from the most confident fifth to the least, and the rank
-     correlation between claimed uncertainty and actual error is ρ&nbsp;=&nbsp;${rho.toFixed(2)}.
-     A well-calibrated average is not the same thing as a useful per-prediction warning,
-     and conflating the two is how uncertainty estimates get oversold.`;
+     against an ideal of 68% and 95%. So if you ask "how often is the truth inside the
+     error bars?", the answer is honest.
+     <br><br>
+     Telling <em>which individual</em> predictions are bad is a harder job, and here it
+     barely manages. Error rises ${ratio.toFixed(2)}× from the most confident fifth of
+     the test set to the least${monotonic ? "" : ", and not even steadily — the middle"
+     + " bins do not fall in order, so that ratio flatters the trend"}. Across all
+     ${D.complexes.length} complexes the rank correlation between claimed uncertainty and
+     actual error is ρ&nbsp;=&nbsp;${rho.toFixed(2)}, which is close to useless as a
+     per-prediction warning.
+     <br><br>
+     A well-calibrated average is not the same thing as knowing which answers to doubt,
+     and conflating the two is how uncertainty estimates get oversold. This is also one
+     split: treat ρ as indicative, not measured.`;
 }
 
 // --- selected complex --------------------------------------------------------

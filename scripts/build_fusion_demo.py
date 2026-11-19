@@ -35,7 +35,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CACHE_NAME = "pdbbind_examples.pkl"
 
 
-def build_pairs(examples, y_mean, y_std):
+def build_pairs(examples, y_mean, y_std, with_neighbors: bool = True):
     """Tensorise complexes, keeping examples and pairs aligned.
 
     The benchmark script drops unparseable rows without recording which, which
@@ -52,7 +52,7 @@ def build_pairs(examples, y_mean, y_std):
     for ex in examples:
         try:
             lig = to_pyg_data(smiles_to_graph_arrays(ex.ligand_smiles), y=ex.affinity)
-            geo = _build_geo_pyg(ex)
+            geo = _build_geo_pyg(ex, with_neighbors=with_neighbors)
             geo.y = torch.tensor([(float(ex.affinity) - y_mean) / y_std], dtype=torch.float)
         except Exception:
             continue
@@ -120,6 +120,17 @@ def main(argv=None) -> int:
     ap.add_argument("--mc-samples", type=int, default=30)
     ap.add_argument("--test-size", type=float, default=0.2)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--neighbor-features", dest="neighbor_features",
+                    action="store_true", default=True,
+                    help="give the geometry tower first-neighbour chemistry and a "
+                         "ligand/pocket flag (default)")
+    ap.add_argument("--no-neighbor-features", dest="neighbor_features",
+                    action="store_false",
+                    help="element identity only, the original behaviour")
+    ap.add_argument("--no-mc-dropout", dest="mc_dropout", action="store_false",
+                    default=True,
+                    help="sample only the Bayesian head, leaving the encoders "
+                         "deterministic (reproduces the rho=0.07 result)")
     ap.add_argument("--n-structures", type=int, default=28,
                     help="complexes shipped with 3D coordinates")
     args = ap.parse_args(argv)
@@ -129,6 +140,7 @@ def main(argv=None) -> int:
     from torch_geometric.loader import DataLoader
 
     from caddack.gnn.bayes import elbo_loss
+    from caddack.gnn.geometry import NEIGHBOR_FEAT_DIM
     from caddack.gnn.models import FusionAffinityNet
     from caddack.qsar.split import scaffold_split
 
@@ -155,8 +167,10 @@ def main(argv=None) -> int:
     y_mean, y_std = float(train_aff.mean()), float(train_aff.std(ddof=1)) or 1.0
     print(f"  target standardisation: mean={y_mean:.3f} std={y_std:.3f}")
 
-    train_pairs, _ = build_pairs(train_ex, y_mean, y_std)
-    test_pairs, test_kept = build_pairs(test_ex, y_mean, y_std)
+    nf = args.neighbor_features
+    print(f"  geometry features: {'element + first neighbours' if nf else 'element only'}")
+    train_pairs, _ = build_pairs(train_ex, y_mean, y_std, with_neighbors=nf)
+    test_pairs, test_kept = build_pairs(test_ex, y_mean, y_std, with_neighbors=nf)
     n_train = len(train_pairs)
     print(f"  tensorised: train={n_train} test={len(test_pairs)}")
 
@@ -171,6 +185,7 @@ def main(argv=None) -> int:
     model = FusionAffinityNet.build(
         ligand_in_channels=7, ligand_edge_dim=7, hidden_channels=args.hidden,
         num_gine_layers=3, num_geo_interactions=2, num_rbf=24, cutoff=6.0,
+        geo_node_feat_dim=NEIGHBOR_FEAT_DIM if nf else 0,
         bayesian_hidden=[256, 128], prior_sigma=args.prior_sigma, dropout=args.dropout)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 
@@ -212,7 +227,8 @@ def main(argv=None) -> int:
     preds, epis, ales, truth = [], [], [], []
     with torch.no_grad():
         for lig_b, geo_b in test_loader:
-            m, e, a = model.predict_with_uncertainty(lig_b, geo_b, n_samples=args.mc_samples)
+            m, e, a = model.predict_with_uncertainty(
+                lig_b, geo_b, n_samples=args.mc_samples, mc_dropout=args.mc_dropout)
             preds += m.tolist()
             epis += e.tolist()
             ales += a.tolist()
@@ -266,7 +282,8 @@ def main(argv=None) -> int:
               "target": "-log Kd/Ki (pK units)",
               "dataset": "PDBbind v2015 refined set",
               "config": {"epochs": args.epochs, "kl_weight": args.kl_weight,
-                         "mc_samples": args.mc_samples, "hidden": args.hidden}}
+                         "mc_samples": args.mc_samples, "hidden": args.hidden,
+                         "neighbor_features": nf, "mc_dropout": args.mc_dropout}}
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(bundle, allow_nan=False), encoding="utf-8")
     print(f"  wrote {args.out} ({args.out.stat().st_size/1e6:.2f} MB, "

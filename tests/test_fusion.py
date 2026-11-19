@@ -395,3 +395,120 @@ def test_train_fusion_smoke(tmp_path):
     assert (tmp_path / "fusion_out" / "model.pt").exists()
     assert (tmp_path / "fusion_out" / "metrics.json").exists()
     assert (tmp_path / "fusion_out" / "config.json").exists()
+
+
+# --- first-neighbour geometry features ----------------------------------------
+# The geometry tower embeds atomic number alone, so a backbone carbonyl oxygen,
+# a serine hydroxyl and a buried water arrive as the same token. These features
+# recover the distinction from coordinates, without residue templates.
+
+def test_neighbor_features_have_the_declared_width():
+    from caddack.gnn.geometry import NEIGHBOR_FEAT_DIM, neighbor_features
+
+    rows = neighbor_features([6, 8], [(0, 0, 0), (1.23, 0, 0)], n_ligand=1)
+    assert len(rows) == 2
+    assert all(len(r) == NEIGHBOR_FEAT_DIM for r in rows)
+
+
+def test_neighbor_features_flag_ligand_atoms():
+    """The tower otherwise gets one undifferentiated point cloud."""
+    from caddack.gnn.geometry import neighbor_features
+
+    rows = neighbor_features([6, 6, 6], [(0, 0, 0), (1.5, 0, 0), (9, 9, 9)], n_ligand=2)
+    assert [r[0] for r in rows] == [1.0, 1.0, 0.0]
+
+
+def test_bond_length_separates_carbonyl_from_hydroxyl_oxygen():
+    """C=O is ~1.23 A and C-O ~1.43 A; one accepts, the other also donates.
+
+    Measured on PDBbind, oxygens with a single carbon neighbour are strongly
+    bimodal across this boundary, so the feature carries real signal.
+    """
+    from caddack.gnn.geometry import neighbor_features
+
+    carbonyl = neighbor_features([8, 6], [(0, 0, 0), (1.23, 0, 0)], n_ligand=2)[0]
+    hydroxyl = neighbor_features([8, 6], [(0, 0, 0), (1.43, 0, 0)], n_ligand=2)[0]
+    assert carbonyl[7] < hydroxyl[7], "min-neighbour distance must distinguish them"
+
+
+def test_isolated_atom_reads_as_distant_not_zero():
+    """A lone water oxygen has no bonded neighbour. Zero distance would read as
+    an impossibly short bond, so the cutoff is used instead."""
+    from caddack.gnn.geometry import neighbor_features
+
+    row = neighbor_features([8], [(0, 0, 0)], n_ligand=0)[0]
+    assert row[1] == 0.0          # degree
+    assert row[7] == pytest.approx(1.0)   # min distance, normalised to the cutoff
+
+
+def test_neighbor_counts_describe_the_coordination_shell():
+    from caddack.gnn.geometry import neighbor_features
+
+    # A carbon bonded to one N and one O, plus a far-away atom that is not bonded.
+    rows = neighbor_features([6, 7, 8, 6],
+                             [(0, 0, 0), (1.47, 0, 0), (0, 1.43, 0), (9, 9, 9)],
+                             n_ligand=4)
+    c = rows[0]
+    assert c[1] * 4 == pytest.approx(2)    # degree: the distant atom is excluded
+    assert c[2] * 4 == pytest.approx(0)    # no carbon neighbours
+    assert c[3] * 4 == pytest.approx(1)    # one nitrogen
+    assert c[4] * 4 == pytest.approx(1)    # one oxygen
+
+
+def test_neighbor_features_reject_mismatched_input():
+    from caddack.gnn.geometry import neighbor_features
+
+    with pytest.raises(ValueError):
+        neighbor_features([6, 8], [(0, 0, 0)], n_ligand=1)
+
+
+def test_empty_input_returns_empty():
+    from caddack.gnn.geometry import neighbor_features
+
+    assert neighbor_features([], [], n_ligand=0) == []
+
+
+@pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit required")
+def test_mc_dropout_makes_epistemic_uncertainty_see_the_encoder():
+    """With dropout off, every MC sample shares one embedding, so the epistemic
+    term can only reflect the Bayesian head and never signals an unfamiliar
+    input. This is the mechanism behind the rho=0.07 result."""
+    import torch
+    from torch_geometric.data import Batch, Data
+
+    from caddack.gnn.datasets import smiles_to_graph_arrays, to_pyg_data
+    from caddack.gnn.models import FusionAffinityNet
+
+    torch.manual_seed(0)
+    m = FusionAffinityNet.build(ligand_in_channels=7, ligand_edge_dim=7,
+                                hidden_channels=32, num_gine_layers=2,
+                                num_geo_interactions=1, num_rbf=8, cutoff=5.0,
+                                bayesian_hidden=[32], dropout=0.5)
+    lig = Batch.from_data_list([to_pyg_data(smiles_to_graph_arrays("CCOc1ccccc1"), y=1.0)])
+    geo = Batch.from_data_list([Data(z=torch.tensor([6, 7, 8, 6, 6]),
+                                     pos=torch.randn(5, 3))])
+
+    _, epi_on, _ = m.predict_with_uncertainty(lig, geo, n_samples=24, mc_dropout=True)
+    _, epi_off, _ = m.predict_with_uncertainty(lig, geo, n_samples=24, mc_dropout=False)
+    assert epi_on.item() > epi_off.item(), (
+        "sampling the encoders should widen epistemic uncertainty"
+    )
+
+
+@pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit required")
+def test_predict_with_uncertainty_restores_mode_with_mc_dropout():
+    import torch
+    from torch_geometric.data import Batch, Data
+
+    from caddack.gnn.datasets import smiles_to_graph_arrays, to_pyg_data
+    from caddack.gnn.models import FusionAffinityNet
+
+    m = FusionAffinityNet.build(ligand_in_channels=7, ligand_edge_dim=7,
+                                hidden_channels=16, num_gine_layers=1,
+                                num_geo_interactions=1, num_rbf=4, cutoff=5.0,
+                                bayesian_hidden=[16])
+    lig = Batch.from_data_list([to_pyg_data(smiles_to_graph_arrays("CCO"), y=1.0)])
+    geo = Batch.from_data_list([Data(z=torch.tensor([6, 7, 8]), pos=torch.randn(3, 3))])
+    m.eval()
+    m.predict_with_uncertainty(lig, geo, n_samples=2, mc_dropout=True)
+    assert m.training is False, "caller's eval mode must be restored"
