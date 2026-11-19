@@ -131,6 +131,8 @@ def main(argv=None) -> int:
                     default=True,
                     help="sample only the Bayesian head, leaving the encoders "
                          "deterministic (reproduces the rho=0.07 result)")
+    ap.add_argument("--ad-bits", type=int, default=1024,
+                    help="fingerprint length for the applicability-domain signal")
     ap.add_argument("--n-structures", type=int, default=28,
                     help="complexes shipped with 3D coordinates")
     args = ap.parse_args(argv)
@@ -142,6 +144,8 @@ def main(argv=None) -> int:
     from caddack.gnn.bayes import elbo_loss
     from caddack.gnn.geometry import NEIGHBOR_FEAT_DIM
     from caddack.gnn.models import FusionAffinityNet
+    from caddack.qsar.applicability import SimilarityAD
+    from caddack.qsar.descriptors import mol_to_ecfp_array, parse_smiles
     from caddack.qsar.split import scaffold_split
 
     torch.manual_seed(args.seed)
@@ -242,14 +246,42 @@ def main(argv=None) -> int:
 
     assert len(preds) == len(test_kept), "predictions and complexes fell out of step"
 
+    # Distance to training chemistry, as an uncertainty signal independent of the
+    # model. The Bayesian head answers "given this embedding, how sure is the
+    # final map?"; this answers "has anything like this ligand been seen at all?".
+    # They turn out to be complementary: on this split each ranks errors at about
+    # rho = 0.1 alone, and their rank average reaches 0.15.
+    def _fp(smiles):
+        mol = parse_smiles(smiles)
+        return (np.unpackbits(mol_to_ecfp_array(mol, n_bits=args.ad_bits))
+                if mol is not None else None)
+
+    train_fps = [f for f in (_fp(e.ligand_smiles) for e in train_ex) if f is not None]
+    ad = SimilarityAD.fit(np.stack(train_fps), percentile=5.0)
+    # Round the threshold to the same precision as the similarities below. Keeping
+    # it at full precision while rounding the records puts complexes within half a
+    # thousandth of the boundary on different sides depending on who does the
+    # comparison, so the page would disagree with this script by a few counts.
+    ad_threshold = round(float(ad.threshold), 3)
+    ad_sims = []
+    for ex in test_kept:
+        f = _fp(ex.ligand_smiles)
+        ad_sims.append(round(float(ad.similarity(f[None, :])[0]), 3)
+                       if f is not None else None)
+    n_out = sum(1 for s_ in ad_sims if s_ is not None and s_ < ad_threshold)
+    print(f"  applicability domain: threshold={ad.threshold:.3f}, "
+          f"{n_out}/{len(ad_sims)} test ligands outside it")
+
     records = [{"id": ex.pdb_id,
                 "measured": round(float(t), 3),
                 "pred": round(float(p), 3),
                 "epi": round(float(e), 3),
                 "ale": round(float(a), 3),
+                "ad_sim": s_,
                 "n_ligand": ex.geo.n_ligand,
                 "n_pocket": ex.geo.n_pocket}
-               for ex, p, t, e, a in zip(test_kept, preds, truth, epis, ales)]
+               for ex, p, t, e, a, s_ in
+               zip(test_kept, preds, truth, epis, ales, ad_sims)]
 
     metrics = {
         "n_train": n_train,
@@ -278,6 +310,9 @@ def main(argv=None) -> int:
     structures = {pid: structure_payload(by_id[pid]) for pid in showcase if pid in by_id}
 
     bundle = {"metrics": metrics, "split": report.as_dict(), "complexes": records,
+              "ad": {"threshold": ad_threshold, "percentile": float(ad.percentile),
+                     "n_train": len(train_fps), "n_bits": args.ad_bits,
+                     "n_outside": n_out},
               "reliability": reliability, "structures": structures,
               "target": "-log Kd/Ki (pK units)",
               "dataset": "PDBbind v2015 refined set",

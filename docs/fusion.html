@@ -56,6 +56,16 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
 .chips button{padding:7px 13px;font-size:.86rem;border-radius:20px}
+.sigrow{display:grid;grid-template-columns:minmax(0,15rem) 1fr 4rem;gap:12px;
+  align-items:center;padding:6px 0;font-size:.88rem}
+@media(max-width:640px){.sigrow{grid-template-columns:1fr 3.5rem}
+  .sigrow .sigbar{grid-column:1/-1}}
+.siglabel{color:var(--muted)}
+.sigbar{height:9px;background:var(--line);border-radius:99px;overflow:hidden}
+.sigbar i{display:block;height:100%;border-radius:99px;
+  background:color-mix(in srgb,var(--accent) 70%,transparent)}
+.sigbar i.neg{background:var(--bad)}
+.sigval{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
 .statline{display:flex;gap:22px;flex-wrap:wrap;font-size:.86rem;color:var(--muted);margin-top:14px}
 .statline b{color:var(--ink);font-variant-numeric:tabular-nums}
 </style>
@@ -141,6 +151,15 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
       <span><i class="unc"></i>uncertainty the model claimed</span>
     </div>
     <p class="sub" id="reliabilityVerdict" style="margin-top:14px"></p>
+  </div>
+
+  <div class="panel" id="signalsPanel">
+    <h2>So which warning signal is worth listening to?</h2>
+    <p class="sub" style="margin-bottom:16px">Rank correlation between each signal and the
+    error the model actually made, across every held-out complex. Higher is better; a bar
+    in red points the wrong way.</p>
+    <div id="signals"></div>
+    <p class="sub" id="signalsVerdict" style="margin-top:16px"></p>
   </div>
 
   <div class="panel">

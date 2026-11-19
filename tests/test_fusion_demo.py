@@ -135,3 +135,50 @@ def test_page_states_that_predictions_are_precomputed():
     page = (BUNDLE.parent / "fusion.html").read_text()
     assert "computed ahead of time" in page
     assert "index.html" in page, "the two demo pages should link to each other"
+
+
+# --- applicability-domain signal ----------------------------------------------
+
+def test_ad_block_is_present_and_sane(data):
+    ad = data.get("ad")
+    assert ad, "the page's signal comparison needs the applicability-domain block"
+    assert 0.0 < ad["threshold"] < 1.0
+    assert ad["n_train"] > 0
+    assert 0 <= ad["n_outside"] <= data["metrics"]["n_test"]
+
+
+def test_every_complex_carries_a_similarity(data):
+    sims = [r.get("ad_sim") for r in data["complexes"]]
+    assert all(s is None or 0.0 <= s <= 1.0 for s in sims)
+    assert sum(s is not None for s in sims) > 0.9 * len(sims)
+
+
+def test_page_and_exporter_agree_on_who_is_out_of_domain(data):
+    """Threshold and similarities must share a precision.
+
+    Storing the threshold at full precision while rounding the per-complex
+    similarities puts complexes within half a thousandth of the boundary on
+    different sides depending on which one does the comparison, so the page
+    reported a count the generating script disagreed with.
+    """
+    t = data["ad"]["threshold"]
+    recomputed = sum(1 for r in data["complexes"]
+                     if r.get("ad_sim") is not None and r["ad_sim"] < t)
+    assert recomputed == data["ad"]["n_outside"]
+
+
+def test_out_of_domain_ligands_really_are_harder(data):
+    """The page claims they carry more error; check it against the records."""
+    t = data["ad"]["threshold"]
+    inside = [abs(r["pred"] - r["measured"]) for r in data["complexes"]
+              if r.get("ad_sim") is not None and r["ad_sim"] >= t]
+    outside = [abs(r["pred"] - r["measured"]) for r in data["complexes"]
+               if r.get("ad_sim") is not None and r["ad_sim"] < t]
+    assert inside and outside
+    assert sum(outside) / len(outside) > sum(inside) / len(inside)
+
+
+def test_page_compares_the_signals_rather_than_quoting_one():
+    page = (BUNDLE.parent / "fusion.js").read_text()
+    assert "rankAverage" in page
+    assert "spearman" in page

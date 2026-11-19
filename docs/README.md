@@ -110,6 +110,36 @@ interaction features are the next thing to try.
 Per-prediction discrimination is still poor (ρ = 0.10, and the quintile trend is
 not monotonic). One split, so read it as indicative.
 
+### Which warning signal is actually worth listening to
+
+Comparing every available signal against the errors the model made, by rank
+correlation over the held-out complexes, as shipped in `fusion.json`:
+
+| signal | ρ vs \|error\| |
+|---|---|
+| epistemic σ — the Bayesian head | **−0.061** |
+| aleatoric σ — predicted noise | +0.069 |
+| both, as the model reports them | +0.049 |
+| distance from training chemistry | +0.091 |
+| the last two, rank-averaged | **+0.112** |
+
+Two results worth stating plainly. The **epistemic** term — the thing the Bayesian
+machinery exists to produce — is slightly *negative*, so even after its calibration
+was fixed it does not rank errors. And **`SimilarityAD`, which ignores the model
+entirely**, does better than anything the model reports about itself: the 195 test
+ligands outside the domain average 1.38 pK of error against 1.18 for those inside.
+
+Averaging their ranks beats either alone, and that combination is what the page
+shows. It is still modest, and the better half of it needs no neural network.
+
+**These numbers are noisier than they look.** Monte Carlo dropout makes the
+uncertainty estimate stochastic, so re-exporting the *same trained model* moved
+the combined ρ from 0.146 to 0.112 — a swing comparable to the effect being
+measured. The page recomputes every correlation from the shipped data, so it is
+always self-consistent, but treat the ordering of the middle rows as unresolved
+rather than measured. Only two things look robust across passes: epistemic sits
+at or below zero, and the applicability-domain signal is positive.
+
 ## Updating RDKit
 
 The WASM build is vendored rather than loaded from a CDN, so the page keeps

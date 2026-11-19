@@ -155,6 +155,78 @@ function drawReliability() {
      split: treat ρ as indicative, not measured.`;
 }
 
+/** Rank-average two signals into one. Scale-free, so no calibration needed. */
+function rankAverage(a, b) {
+  const ranks = (xs) => {
+    const idx = xs.map((v, i) => [v, i]).sort((p, q) => p[0] - q[0]);
+    const r = new Array(xs.length);
+    idx.forEach(([, i], k) => { r[i] = k; });
+    return r;
+  };
+  const ra = ranks(a), rb = ranks(b);
+  return ra.map((v, i) => v + rb[i]);
+}
+
+/** Which signal actually ranks the model's errors? Compare them head to head. */
+function drawSignals() {
+  const withAd = D.complexes.filter((r) => r.ad_sim !== null && r.ad_sim !== undefined);
+  if (!withAd.length || !D.ad) { $("signalsPanel").hidden = true; return; }
+
+  const e = withAd.map(err);
+  const epi = withAd.map((r) => r.epi);
+  const ale = withAd.map((r) => r.ale);
+  const model = withAd.map(totalSd);
+  const adDist = withAd.map((r) => 1 - r.ad_sim);     // distance, not similarity
+  const combined = rankAverage(model, adDist);
+
+  const rows = [
+    ["epistemic \u03c3 \u2014 the Bayesian head", spearman(epi, e)],
+    ["aleatoric \u03c3 \u2014 predicted noise", spearman(ale, e)],
+    ["both, as the model reports them", spearman(model, e)],
+    ["distance from training chemistry", spearman(adDist, e)],
+    ["the last two, rank-averaged", spearman(combined, e)],
+  ];
+  const best = Math.max(...rows.map(([, v]) => Math.abs(v)));
+
+  $("signals").innerHTML = rows.map(([label, rho]) => {
+    const w = (Math.abs(rho) / best) * 100;
+    return `<div class="sigrow">
+      <span class="siglabel">${label}</span>
+      <span class="sigbar"><i class="${rho < 0 ? "neg" : ""}" style="width:${w.toFixed(0)}%"></i></span>
+      <span class="sigval">${rho >= 0 ? "+" : ""}${rho.toFixed(3)}</span>
+    </div>`;
+  }).join("");
+
+  const adRho = spearman(adDist, e);
+  const combRho = spearman(combined, e);
+  const epiRho = spearman(epi, e);
+  const inside = withAd.filter((r) => r.ad_sim >= D.ad.threshold);
+  const outside = withAd.filter((r) => r.ad_sim < D.ad.threshold);
+  const maeIn = inside.reduce((s, r) => s + err(r), 0) / Math.max(inside.length, 1);
+  const maeOut = outside.reduce((s, r) => s + err(r), 0) / Math.max(outside.length, 1);
+
+  $("signalsVerdict").innerHTML =
+    `Two things stand out. The <strong>epistemic</strong> term \u2014 the part the Bayesian
+     machinery exists to produce \u2014 scores \u03c1&nbsp;=&nbsp;${epiRho.toFixed(3)}, so it
+     is not ranking errors at all; what little signal the model reports comes from the
+     predicted noise term beside it.
+     <br><br>
+     And a measure that <em>ignores the model entirely</em> \u2014 how similar the ligand is
+     to the nearest one in training \u2014 does about as well
+     (\u03c1&nbsp;=&nbsp;${adRho.toFixed(3)}). The ${outside.length} test ligands outside the
+     applicability domain average ${maeOut.toFixed(2)} pK of error against
+     ${maeIn.toFixed(2)} for those inside. Because the two capture different failure modes,
+     averaging their ranks beats either alone (\u03c1&nbsp;=&nbsp;${combRho.toFixed(3)})
+     \u2014 still modest, but it is the most useful warning available here, and the better
+     half of it needs no neural network.
+     <br><br>
+     <em>Read the middle rows loosely.</em> Monte Carlo sampling makes the model's own
+     uncertainty stochastic, and re-running the same trained model moves these
+     correlations by about as much as the gaps between them. Two things survive that
+     noise: the epistemic term sits at or below zero, and the training-distance signal
+     stays positive.`;
+}
+
 // --- selected complex --------------------------------------------------------
 
 function select(id) {
@@ -238,6 +310,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   fillSummary();
   drawParity();
   drawReliability();
+  drawSignals();
   $("loading").hidden = true;
   $("app").hidden = false;
 
