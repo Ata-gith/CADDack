@@ -4,9 +4,13 @@ A computational drug-design toolkit: fetch molecules, featurise them, train mode
 that predict binding affinity, and generate docked poses — with honest uncertainty
 and honest evaluation throughout.
 
-**[→ Try the live demo](https://ata-gith.github.io/CADDack/)** — predict a molecule's
-water solubility in your browser and watch the model admit when it's out of its depth.
-No install, nothing uploaded.
+**[→ Try the live demos](https://ata-gith.github.io/CADDack/)** — two pages, no install:
+
+- **[Solubility](https://ata-gith.github.io/CADDack/)** — paste any molecule and watch the
+  model admit when it's out of its depth. Runs entirely in your browser.
+- **[Binding affinity](https://ata-gith.github.io/CADDack/fusion.html)** — explore the
+  Bayesian two-tower model's held-out predictions, and check whether the uncertainty it
+  reports actually predicts its errors. (It barely does, and the page says so.)
 
 ---
 

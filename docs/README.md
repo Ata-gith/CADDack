@@ -1,7 +1,20 @@
-# The browser demo
+# The browser demos
 
-A static page that predicts aqueous solubility and says when it has no business
-answering. Live at **https://ata-gith.github.io/CADDack/**.
+Two static pages, live at **https://ata-gith.github.io/CADDack/**.
+
+| Page | Model | Runs where |
+|---|---|---|
+| `index.html` | RandomForest on ECFP4 + descriptors, trained on ESOL | **live in the browser** |
+| `fusion.html` | `FusionAffinityNet` — two-tower Bayesian GNN, trained on PDBbind | precomputed |
+
+They are different models answering different questions, and the pages say so.
+The solubility page takes any SMILES and predicts live. The affinity page cannot:
+`FusionAffinityNet` needs a protein–ligand complex with 3D coordinates, which a
+visitor cannot type in, and its Bayesian head needs Monte Carlo sampling over
+weight posteriors. So that page explores predictions computed offline by
+`scripts/build_fusion_demo.py`, and it uses the room that buys to ask something a
+live predictor could not: whether the uncertainty the model reports actually
+tracks the errors it makes.
 
 Everything runs client-side. RDKit is compiled to WebAssembly and the random
 forest is walked in JavaScript, so nothing is uploaded and there is no server to
@@ -11,9 +24,12 @@ run. GitHub Pages serves this directory as-is.
 
 | File | What it is |
 |---|---|
-| `index.html` | The page: layout, styling, presets |
-| `app.js` | Featurisation, forest evaluation, Tanimoto, rendering |
-| `model.json` | Trained forest + training fingerprints, built by `scripts/build_demo_model.py` |
+| `index.html` / `app.js` | Solubility page: featurisation, forest evaluation, Tanimoto, rendering |
+| `model.json` | Trained forest + training fingerprints, from `scripts/build_demo_model.py` |
+| `fusion.html` / `fusion.js` | Affinity page: parity plot, reliability chart, 3D viewer |
+| `fusion.json` | Held-out predictions with uncertainty, from `scripts/build_fusion_demo.py` |
+| `style.css` | Design tokens and components shared by both pages |
+| `3Dmol-min.js` | 3Dmol.js, vendored from npm, for the binding-site viewer |
 | `RDKit_minimal.js` / `.wasm` | RDKit's MinimalLib, vendored from npm (see below) |
 | `.nojekyll` | Stops Jekyll filtering files and slowing the Pages build |
 | `*.tex` / `*.pdf` | The mathematics write-ups, unrelated to the demo |
@@ -34,6 +50,24 @@ by Bemis–Murcko scaffold, so the test molecules are structurally novel:
 | MAE | 0.74 log units |
 | Pearson *r* | 0.90 |
 | Train / test | 902 / 226 across 268 scaffold groups |
+
+## Rebuilding the affinity predictions
+
+```bash
+# one-time: ~2 GB download, then parse ~12,000 complexes
+python scripts/benchmark_pdbbind.py --data-dir /path/to/pdbbind --download --build
+python scripts/build_fusion_demo.py --data-dir /path/to/pdbbind --epochs 25
+```
+
+Trains on the PDBbind v2015 refined set with a Bemis–Murcko scaffold split, so the
+test ligands are chemically novel rather than close analogues. Training resumes
+from `fusion_demo_ckpt.pt` if interrupted. The export ships per-complex
+predictions for the whole test set plus 3D coordinates for a subset chosen to span
+the behaviour worth seeing — the most accurate calls, the worst misses, and the
+cases where the model was most and least certain.
+
+The pocket is everything within 6 Å of the ligand, so the model never sees the
+wider protein.
 
 ## Updating RDKit
 

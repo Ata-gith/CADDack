@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Can it tell when it's wrong? — CADDack</title>
+<meta name="description" content="A Bayesian protein–ligand affinity model, and a test of whether the uncertainty it reports actually predicts its errors.">
+<link rel="stylesheet" href="style.css">
+<style>
+.nav{display:flex;gap:14px;align-items:center;margin-bottom:18px;font-size:.9rem}
+.nav a{color:var(--muted);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
+.nav a:hover{color:var(--accent);border-color:var(--accent)}
+.nav a.here{color:var(--ink);font-weight:600;border-color:var(--accent)}
+
+.note{background:var(--bg);border:1px solid var(--line);border-left:4px solid var(--warn);
+  border-radius:10px;padding:14px 16px;margin:0 0 18px;font-size:.92rem;color:var(--muted)}
+.note strong{color:var(--ink)}
+
+.split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,420px);gap:22px;align-items:start}
+@media(max-width:860px){.split{grid-template-columns:1fr}}
+
+#parity svg,#reliability svg{width:100%;height:auto;display:block}
+#parity{max-width:560px;margin-inline:auto}
+#reliability{max-width:560px}
+svg .grid{stroke:var(--line);stroke-width:1}
+svg .diag{stroke:var(--muted);stroke-width:1;stroke-dasharray:5 4;opacity:.6}
+svg .tick,svg .axis{fill:var(--muted);font-size:11px;
+  font-family:ui-sans-serif,system-ui,sans-serif}
+svg .axis{font-size:12px}
+svg .pt{fill:color-mix(in srgb,var(--accent) 42%,transparent);stroke:none;cursor:pointer}
+svg .pt:hover{fill:var(--accent)}
+svg .pt.has3d{fill:color-mix(in srgb,var(--accent) 72%,transparent);stroke:var(--panel);stroke-width:1}
+svg .pt.sel{fill:var(--bad);stroke:var(--ink);stroke-width:1.5}
+svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 55%,transparent)}
+
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:.78rem;color:var(--muted);margin-top:4px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.legend i.err{background:var(--bad);border-radius:2px}
+.legend i.unc{background:color-mix(in srgb,var(--accent) 55%,transparent);border-radius:2px}
+.legend i.has3d{background:color-mix(in srgb,var(--accent) 72%,transparent)}
+.legend i.plain{background:color-mix(in srgb,var(--accent) 42%,transparent)}
+
+#viewer{position:relative;width:100%;height:300px;border-radius:10px;
+  background:var(--bg);border:1px solid var(--line);overflow:hidden}
+.noStruct{color:var(--muted);font-size:.9rem;padding:24px;text-align:center;
+  border:1px dashed var(--line);border-radius:10px}
+
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;margin:14px 0 0;
+  font-size:.9rem;font-variant-numeric:tabular-nums}
+.kv dt{color:var(--muted)} .kv dd{margin:0;font-weight:600}
+.big{font-size:2.1rem;font-weight:650;letter-spacing:-.02em;line-height:1.1}
+
+.verdict{margin:14px 0 0;padding:12px 14px;border-radius:10px;font-size:.92rem;
+  border:1px solid var(--line);border-left-width:4px;background:var(--bg)}
+.verdict.ok{border-left-color:var(--good)} .verdict.miss{border-left-color:var(--bad)}
+
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.chips button{padding:7px 13px;font-size:.86rem;border-radius:20px}
+.statline{display:flex;gap:22px;flex-wrap:wrap;font-size:.86rem;color:var(--muted);margin-top:14px}
+.statline b{color:var(--ink);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav class="nav">
+  <a href="index.html">← Solubility</a>
+  <a href="#" class="here">Binding affinity</a>
+</nav>
+
+<header>
+  <h1>Can it tell when it's wrong?</h1>
+  <p class="sub">A Bayesian neural network that predicts how tightly a molecule binds a
+  protein, using both the ligand's 2D graph and the 3D geometry of the binding site.
+  It reports an uncertainty with every prediction. The question worth asking is whether
+  that uncertainty means anything — so this page checks it against the errors it made.</p>
+</header>
+
+<p class="loading" id="loading">Loading predictions…</p>
+<p class="err" id="error" hidden></p>
+
+<div id="app" hidden>
+
+  <p class="note"><strong>These predictions were computed ahead of time, not in your browser.</strong>
+  This model needs a protein–ligand complex with 3D coordinates, which you cannot type into
+  a box, and its Bayesian head needs Monte&nbsp;Carlo sampling over weight posteriors. The
+  <a href="index.html">solubility page</a> does run its model live; this one explores results
+  from a held-out test set.</p>
+
+  <div class="panel">
+    <div class="split">
+      <div>
+        <h2>Every held-out complex</h2>
+        <div id="parity"></div>
+        <div class="legend">
+          <span><i class="plain"></i>test complex</span>
+          <span><i class="has3d"></i>has a 3D structure here — click it</span>
+          <span>larger circle = model less certain</span>
+        </div>
+      </div>
+
+      <div>
+        <h2>Selected complex</h2>
+        <div id="viewerWrap">
+          <div id="viewer"></div>
+          <p class="legend" style="margin-top:8px">
+            <span>cyan = ligand · grey = pocket · drag to rotate</span></p>
+        </div>
+        <p class="noStruct" id="noStructure" hidden>
+          No 3D coordinates shipped for this complex — only a subset is included to keep
+          the page small.</p>
+
+        <div class="big"><span id="selId"></span></div>
+        <dl class="kv">
+          <dt>predicted</dt><dd><span id="selPred"></span> pK</dd>
+          <dt>measured</dt><dd><span id="selMeasured"></span> pK</dd>
+          <dt>error</dt><dd><span id="selError"></span> pK</dd>
+          <dt>epistemic σ</dt><dd><span id="selEpi"></span> — model uncertainty</dd>
+          <dt>aleatoric σ</dt><dd><span id="selAle"></span> — noise it can't reduce</dd>
+          <dt>atoms</dt><dd id="selAtoms"></dd>
+        </dl>
+        <p class="verdict" id="selVerdict"></p>
+
+        <div class="chips">
+          <button id="best">Its best call</button>
+          <button id="worst">Its worst miss</button>
+          <button id="confidentMiss">Confidently wrong</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Does the uncertainty actually predict the error?</h2>
+    <p class="sub" style="margin-bottom:14px">The test set, split into five groups by how
+    uncertain the model said it was. If the uncertainty is meaningful, the red bars should
+    climb left to right.</p>
+    <div id="reliability"></div>
+    <div class="legend">
+      <span><i class="err"></i>mean absolute error</span>
+      <span><i class="unc"></i>uncertainty the model claimed</span>
+    </div>
+    <p class="sub" id="reliabilityVerdict" style="margin-top:14px"></p>
+  </div>
+
+  <div class="panel">
+    <h2>The numbers</h2>
+    <div class="statline">
+      <span>MAE <b id="mMae"></b> pK</span>
+      <span>R² <b id="mR2"></b></span>
+      <span>Pearson <i>r</i> <b id="mR"></b></span>
+      <span>1σ coverage <b id="mCov1"></b></span>
+      <span>2σ coverage <b id="mCov2"></b></span>
+      <span>mean-predictor MAE <b id="mBaseline"></b></span>
+    </div>
+    <div class="statline">
+      <span>train <b id="mTrain"></b></span>
+      <span>test <b id="mTest"></b></span>
+      <span>scaffold groups <b id="mGroups"></b></span>
+      <span>structures shipped <b id="mStructs"></b></span>
+    </div>
+  </div>
+
+  <footer class="panel">
+    <h2>What the model is</h2>
+    <p><code>FusionAffinityNet</code> has two encoders. A GINE network reads the ligand's 2D
+    graph with its bond features; a SchNet-style network reads the 3D positions of ligand and
+    pocket atoms through radial-basis distance filters. Their outputs are concatenated into a
+    Bayesian head trained by Bayes-by-Backprop, which learns a distribution over weights rather
+    than point values. Sampling that distribution gives <strong>epistemic</strong> uncertainty,
+    which more data should reduce; a predicted log-variance gives <strong>aleatoric</strong>
+    uncertainty, which it should not.</p>
+
+    <p>Trained on the PDBbind v2015 refined set, held out by Bemis–Murcko scaffold so test
+    ligands are chemically novel rather than close analogues of the training set. That split is
+    considerably harder than the usual core-set holdout, and the numbers above are lower
+    because of it. Ideal calibration would be 68% and 95% coverage.</p>
+
+    <p><strong>Read this cautiously.</strong> Affinity prediction benchmarks are
+    <a href="https://www.nature.com/articles/s42256-025-01124-5">known to overlap heavily with
+    training data</a>, which inflates published figures; the scaffold split here is an attempt
+    to avoid that, not a guarantee. The pocket is everything within 6&nbsp;Å of the ligand, so
+    the model never sees the wider protein. And a single held-out split, however honest, is one
+    sample.</p>
+
+    <p>Rebuild everything with <code>scripts/build_fusion_demo.py</code>. The mathematics is
+    written up in <a href="elbo_math.pdf">elbo_math.pdf</a> and
+    <a href="caddack_gnn_math.pdf">caddack_gnn_math.pdf</a>. Part of
+    <a href="https://github.com/Ata-gith/CADDack">CADDack</a>.</p>
+  </footer>
+</div>
+
+</div>
+<script src="3Dmol-min.js"></script>
+<script src="fusion.js"></script>
+</body>
+</html>

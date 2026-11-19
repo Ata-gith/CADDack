@@ -33,3 +33,8 @@ models/
 # Raw data must never live inside the package
 src/caddack/data/
 data/raw/molnet/
+
+# training checkpoints from scripts/build_fusion_demo.py
+fusion_demo_*.pt
+*_ckpt.pt
+*_best.pt
