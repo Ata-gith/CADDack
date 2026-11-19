@@ -119,7 +119,14 @@ def main(argv=None) -> int:
     ap.add_argument("--dropout", type=float, default=0.1)
     ap.add_argument("--mc-samples", type=int, default=30)
     ap.add_argument("--test-size", type=float, default=0.2)
-    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--seed", type=int, default=0,
+                    help="controls the scaffold split; keep it fixed when "
+                         "training ensemble members, or they are scored on "
+                         "different test sets and cannot be compared")
+    ap.add_argument("--init-seed", type=int, default=None,
+                    help="weight initialisation and batch shuffling, separate "
+                         "from the split. Defaults to --seed. Vary this to build "
+                         "a deep ensemble.")
     ap.add_argument("--neighbor-features", dest="neighbor_features",
                     action="store_true", default=True,
                     help="give the geometry tower first-neighbour chemistry and a "
@@ -148,7 +155,10 @@ def main(argv=None) -> int:
     from caddack.qsar.descriptors import mol_to_ecfp_array, parse_smiles
     from caddack.qsar.split import scaffold_split
 
-    torch.manual_seed(args.seed)
+    # The split seed and the initialisation seed are deliberately separate: an
+    # ensemble needs different weights on the *same* held-out set.
+    init_seed = args.seed if args.init_seed is None else args.init_seed
+    torch.manual_seed(init_seed)
     with open(args.data_dir / CACHE_NAME, "rb") as fh:
         examples = pickle.load(fh)
     examples = [e for e in examples if getattr(e, "is_refined", True)]
@@ -318,7 +328,8 @@ def main(argv=None) -> int:
               "dataset": "PDBbind v2015 refined set",
               "config": {"epochs": args.epochs, "kl_weight": args.kl_weight,
                          "mc_samples": args.mc_samples, "hidden": args.hidden,
-                         "neighbor_features": nf, "mc_dropout": args.mc_dropout}}
+                         "neighbor_features": nf, "mc_dropout": args.mc_dropout,
+                         "seed": args.seed, "init_seed": init_seed}}
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(bundle, allow_nan=False), encoding="utf-8")
     print(f"  wrote {args.out} ({args.out.stat().st_size/1e6:.2f} MB, "
