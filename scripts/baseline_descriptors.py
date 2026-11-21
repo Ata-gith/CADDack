@@ -6,6 +6,11 @@ heavy-atom count, the pocket's atom count, and their ratio -- uses no 3D
 information beyond how many protein atoms sit within the cutoff. On the PDBbind
 refined set with a scaffold split it reaches r = 0.585, R2 = 0.339, MAE = 1.208.
 
+With --vina-terms it also gets Vina's five interaction terms, which do use the
+geometry, and reaches r = 0.636, R2 = 0.403, MAE = 1.154. The gain holds across
+split seeds (r +0.038 to +0.051 on three), so explicit interaction energy helps
+even a model with no learned representation at all. That is the harder bar.
+
 That matched the two-tower Bayesian network, which is how the network was found
 to be ignoring the structure: sum-pooling an undifferentiated bag of ligand and
 pocket atoms is a learned atom count, so an atom inventory minimised the loss
@@ -35,6 +40,8 @@ from sklearn.linear_model import RidgeCV
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
+from caddack.docking.scoring import TERM_NAMES, vina_terms  # noqa: E402
+from caddack.gnn.geometry import load_ligand, parse_pdb_atoms  # noqa: E402
 from caddack.qsar.descriptors import mol_to_basic_features, smiles_to_mol_clean  # noqa: E402
 from caddack.qsar.split import scaffold_split  # noqa: E402
 
@@ -43,18 +50,46 @@ FEATURES = ["MolWt", "LogP", "TPSA", "NumHBD", "NumHBA", "NumRotBonds",
             "n_ligand_atoms", "n_pocket_atoms", "pocket_per_ligand_atom"]
 
 
-def featurize(examples, indices):
+def vina_features(data_dir: Path, pdb_id: str, cutoff: float = 8.0):
+    """Vina's interaction terms for one complex, from the raw pocket file.
+
+    Recomputed from disk rather than taken from the cached GeometryRecord: the
+    cache keeps only ATOM records within 6 A, which drops cofactors and metals
+    and truncates the longer-range gauss2 term. Doing it properly is worth about
+    0.2 in correlation with affinity.
+    """
+    base = data_dir / "v2015" / pdb_id
+    protein = parse_pdb_atoms(base / f"{pdb_id}_pocket.pdb")
+    ligand = load_ligand(base / f"{pdb_id}_ligand.mol2")
+    if not protein or not ligand:
+        return None
+    lig_pos = np.array([[a.x, a.y, a.z] for a in ligand])
+    lig_z = [a.atomic_num for a in ligand]
+    pro_pos = np.array([[a.x, a.y, a.z] for a in protein])
+    pro_z = np.array([a.atomic_num for a in protein])
+    near = np.sqrt(((pro_pos[:, None, :] - lig_pos[None, :, :]) ** 2).sum(-1)).min(1) <= cutoff
+    terms = vina_terms(list(lig_z) + list(pro_z[near]),
+                       np.vstack([lig_pos, pro_pos[near]]), n_ligand=len(lig_z))
+    return [terms[k] for k in TERM_NAMES] + [terms["vina_inter"]]
+
+
+def featurize(examples, indices, data_dir=None, with_vina=False):
     rows, targets = [], []
     for i in indices:
         ex = examples[i]
         mol = smiles_to_mol_clean(ex.ligand_smiles) if ex.ligand_smiles else None
         if mol is None:
             continue
+        extra = []
+        if with_vina:
+            extra = vina_features(data_dir, ex.pdb_id)
+            if extra is None:
+                continue
         desc = mol_to_basic_features(mol)
         n_lig = mol.GetNumAtoms()
         rows.append([desc["MolWt"], desc["LogP"], desc["TPSA"], desc["NumHBD"],
                      desc["NumHBA"], desc["NumRotBonds"], n_lig,
-                     ex.geo.n_pocket, ex.geo.n_pocket / max(n_lig, 1)])
+                     ex.geo.n_pocket, ex.geo.n_pocket / max(n_lig, 1)] + extra)
         targets.append(ex.affinity)
     return np.asarray(rows, dtype=float), np.asarray(targets, dtype=float)
 
@@ -76,6 +111,9 @@ def main(argv=None) -> int:
     ap.add_argument("--test-size", type=float, default=0.2)
     ap.add_argument("--seed", type=int, default=0, help="split seed; match the model's")
     ap.add_argument("--n-estimators", type=int, default=300)
+    ap.add_argument("--vina-terms", action="store_true",
+                    help="add Vina's five interaction terms and their weighted "
+                         "sum, recomputed from the raw pocket files")
     ap.add_argument("--general", action="store_true",
                     help="use the full general set instead of the refined subset")
     args = ap.parse_args(argv)
@@ -88,11 +126,13 @@ def main(argv=None) -> int:
     frame = pd.DataFrame({"smiles": [e.ligand_smiles for e in examples]})
     train_idx, test_idx = scaffold_split(frame, smiles_col="smiles",
                                          test_size=args.test_size, seed=args.seed)
-    X_train, y_train = featurize(examples, train_idx)
-    X_test, y_test = featurize(examples, test_idx)
+    kw = {"data_dir": args.data_dir, "with_vina": args.vina_terms}
+    X_train, y_train = featurize(examples, train_idx, **kw)
+    X_test, y_test = featurize(examples, test_idx, **kw)
     print(f"  {len(examples)} complexes, scaffold split: "
           f"train {len(y_train)}  test {len(y_test)}")
-    print(f"  features: {', '.join(FEATURES)}\n")
+    names = FEATURES + ([*TERM_NAMES, "vina_inter"] if args.vina_terms else [])
+    print(f"  features ({len(names)}): {', '.join(names)}\n")
 
     results = {}
     models = [
@@ -114,8 +154,9 @@ def main(argv=None) -> int:
           f"MAE {results['predict the mean']['mae']:.3f}")
 
     rf = results["random forest"]
-    print(f"\n  A structure-aware model should beat r {rf['pearson']:.3f} / "
-          f"MAE {rf['mae']:.3f}, over several seeds.")
+    kind = "descriptors + Vina terms" if args.vina_terms else "descriptors alone"
+    print(f"\n  Bar from {kind}: a structure-aware model should beat "
+          f"r {rf['pearson']:.3f} / MAE {rf['mae']:.3f}, over several seeds.")
 
     if args.out:
         args.out.write_text(json.dumps(
