@@ -235,18 +235,25 @@ class GeometryTower:
                 # Contacts that cross the interface: the quantity actually being
                 # predicted. Pooling over these rather than over atoms means an
                 # atom inventory is no longer a solution.
+                #
+                # Only cross edges are embedded. They are a minority of the graph
+                # -- 28% at a 6 A cutoff, 16% at 14 A, the rest being pocket-pocket
+                # -- so building pair features for every edge and discarding most
+                # of them tripled the cost of an epoch for nothing.
                 cross = lig[src] != lig[dst]
-                envelope = 0.5 * (torch.cos(math.pi * dist / self.cutoff) + 1.0)
-                pair = self.pair_net(torch.cat([h[src] * h[dst], rbf], dim=-1))
-                pair = pair * envelope.unsqueeze(-1)
-                pair_c, ebatch = pair[cross], batch[src][cross]
-                if pair_c.numel() == 0:  # no contacts within the cutoff
+                src_c, dst_c = src[cross], dst[cross]
+                if src_c.numel() == 0:  # no contacts within the cutoff
                     inter_sum = h.new_zeros(n_graphs, hidden_channels)
                     inter_mean = inter_sum
                 else:
-                    inter_sum = scatter(pair_c, ebatch, dim=0,
+                    envelope = 0.5 * (torch.cos(math.pi * dist[cross] / self.cutoff) + 1.0)
+                    pair = self.pair_net(
+                        torch.cat([h[src_c] * h[dst_c], rbf[cross]], dim=-1))
+                    pair = pair * envelope.unsqueeze(-1)
+                    ebatch = batch[src_c]
+                    inter_sum = scatter(pair, ebatch, dim=0,
                                         dim_size=n_graphs, reduce="sum")
-                    inter_mean = scatter(pair_c, ebatch, dim=0,
+                    inter_mean = scatter(pair, ebatch, dim=0,
                                          dim_size=n_graphs, reduce="mean")
 
                 # Mean, not sum: size should not carry the prediction on its own.
