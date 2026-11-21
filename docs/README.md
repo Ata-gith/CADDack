@@ -163,6 +163,42 @@ correlation itself.
 
 Reproduce with `scripts/rho_stability.py`.
 
+### Handing the model Vina's interaction terms
+
+The towers were reproducible by nine scalar descriptors, and adding Vina's five
+interaction terms to those descriptors lifted a random forest from r 0.585 to
+0.636. So the terms were given to the Bayesian head directly, standardised on
+train statistics, alongside the tower outputs. On the same scaffold split, one
+seed:
+
+| | r | MAE | R² |
+|---|---|---|---|
+| 9-descriptor RF | 0.585 | 1.208 | 0.339 |
+| **+ Vina terms RF — the bar** | **0.636** | **1.154** | **0.403** |
+| towers alone, 5 seeds | 0.602 | 1.238 | 0.306 |
+| towers + Vina, as predicted | **0.648** | 1.267 | 0.309 |
+| towers + Vina, recalibrated | **0.648** | **1.137** | **0.416** |
+
+Ranking improved clearly — r 0.648 is the best measured here and the first time
+the network has passed the physics baseline. MAE did not, and the reason is
+worth separating from the ranking: **the predictions are compressed to 0.80 of
+the measured spread**, a 57% shrinkage from the Bayesian head's zero-mean prior.
+Rescaling cannot change r, but MAE and R² both punish scale error, so they
+understate what the ranking supports. Fitting a linear rescale on half the test
+set and scoring the other half, over 200 repeats, gives MAE 1.137 ± 0.030 and
+R² 0.416 ± 0.029.
+
+Two caveats. That recalibration is a diagnostic, not a shipped result: doing it
+properly means fitting on a validation slice carved out of training, not on test
+data. And this is one seed against a spread of ±0.038 in r, so the margins over
+the bar — +0.012 in r, −0.017 in MAE — are inside the noise. The fair statement
+is that the network has drawn level with five hand-coded physics terms on a
+random forest, not that it has beaten them.
+
+The shrinkage itself is the actionable part, and it is a property of the model
+rather than the features: a lower KL weight, or an explicit calibration layer,
+should recover it without post-hoc fitting.
+
 ## Updating RDKit
 
 The WASM build is vendored rather than loaded from a CDN, so the page keeps

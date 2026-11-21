@@ -234,11 +234,21 @@ def main(argv=None) -> int:
 
     vina_lookup, vina_stats, n_vina = None, None, 0
     if args.vina_features:
-        vina_lookup = {}
-        for ex in examples:
-            terms = complex_vina_terms(args.data_dir, ex.pdb_id)
-            if terms is not None:
-                vina_lookup[ex.pdb_id] = terms
+        # Parsing every pocket file takes about as long as a training epoch, so
+        # the terms are cached: they depend only on the structures, never on the
+        # split or the model, and this script is routinely resumed.
+        cache = args.data_dir / "vina_terms.json"
+        if cache.exists():
+            vina_lookup = json.loads(cache.read_text())
+            print(f"  vina terms: loaded {len(vina_lookup)} from {cache.name}")
+        else:
+            vina_lookup = {}
+            for ex in examples:
+                terms = complex_vina_terms(args.data_dir, ex.pdb_id)
+                if terms is not None:
+                    vina_lookup[ex.pdb_id] = terms
+            cache.write_text(json.dumps(vina_lookup))
+            print(f"  vina terms: computed and cached {len(vina_lookup)}")
         # Train-set statistics only; using the test set here would leak.
         train_rows = np.array([vina_lookup[e.pdb_id] for e in train_ex
                                if e.pdb_id in vina_lookup], dtype=float)
@@ -247,8 +257,7 @@ def main(argv=None) -> int:
         sd[sd == 0] = 1.0
         vina_stats = (mean, sd)
         n_vina = train_rows.shape[1]
-        print(f"  vina terms: computed for {len(vina_lookup)}/{len(examples)} "
-              f"complexes, {n_vina} features standardised on train")
+        print(f"  vina terms: {n_vina} features standardised on train statistics")
 
     kw = {"with_neighbors": nf, "vina_lookup": vina_lookup, "vina_stats": vina_stats}
     train_pairs, _ = build_pairs(train_ex, y_mean, y_std, **kw)
@@ -375,6 +384,18 @@ def main(argv=None) -> int:
         "coverage_2sigma": float(np.mean(np.abs(preds - truth) <= 2 * total_sd)),
     }
     print("  test:", {k: round(v, 3) for k, v in metrics.items() if isinstance(v, float)})
+
+    # Shrinkage check. The KL term pulls the head toward a zero-mean prior, which
+    # compresses the output range: ranking survives but MAE and R2 do not, since
+    # both punish scale error. A spread far below the target's is a calibration
+    # problem, not a ranking one, and a linear rescale fitted on held-out data
+    # recovers most of it.
+    spread = float(preds.std(ddof=1) / truth.std(ddof=1))
+    metrics["prediction_spread_ratio"] = spread
+    if spread < 0.8:
+        print(f"  NOTE predictions span {spread:.2f} of the measured spread "
+              f"({100 * (1 - spread):.0f}% compressed); MAE and R2 understate "
+              f"what the ranking supports -- see docs/README.md")
 
     # Does claimed uncertainty track actual error? Binned, so the page can show it.
     order = np.argsort(total_sd)
