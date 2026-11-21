@@ -284,6 +284,7 @@ class FusionAffinityNet:
         num_elements: int = 100,
         geo_node_feat_dim: int = 0,
         geo_readout: str = "interaction",
+        global_feat_dim: int = 0,
         bayesian_hidden: list[int] | None = None,
         prior_sigma: float = 1.0,
         dropout: float = 0.1,
@@ -308,7 +309,9 @@ class FusionAffinityNet:
             return nn.Sequential(nn.Linear(in_dim, out_dim), nn.ReLU(), nn.Linear(out_dim, out_dim))
 
         bayes_head = BayesianMLP.build(
-            in_features=hidden_channels * 2,
+            # The two towers, plus any per-complex features supplied alongside
+            # them (see global_feat_dim).
+            in_features=hidden_channels * 2 + global_feat_dim,
             hidden_dims=bayesian_hidden,
             prior_sigma=prior_sigma,
             dropout=dropout,
@@ -331,6 +334,7 @@ class FusionAffinityNet:
 
                 # Bayesian head
                 self.bayes_head = bayes_head
+                self.global_feat_dim = global_feat_dim
 
             def _encode_ligand(self, lig_data):
                 x, edge_index, edge_attr, batch = (
@@ -348,6 +352,16 @@ class FusionAffinityNet:
                                        getattr(geo_data, "nfeat", None),
                                        getattr(geo_data, "is_ligand", None))
                 h = torch.cat([h_lig, h_geo], dim=-1)
+                if self.global_feat_dim:
+                    # Per-complex scalars handed to the head directly rather than
+                    # learned: Vina's interaction terms, which a random forest
+                    # showed carry signal the towers were not extracting.
+                    gfeat = getattr(geo_data, "gfeat", None)
+                    if gfeat is None:
+                        raise ValueError(
+                            f"built with global_feat_dim={self.global_feat_dim} "
+                            "but geo_data has no 'gfeat'")
+                    h = torch.cat([h, gfeat.view(h.shape[0], -1)], dim=-1)
                 mu, log_var = self.bayes_head(h)
                 return mu, log_var
 

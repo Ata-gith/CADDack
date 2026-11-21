@@ -35,7 +35,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CACHE_NAME = "pdbbind_examples.pkl"
 
 
-def build_pairs(examples, y_mean, y_std, with_neighbors: bool = True):
+def build_pairs(examples, y_mean, y_std, with_neighbors: bool = True,
+                vina_lookup=None, vina_stats=None):
     """Tensorise complexes, keeping examples and pairs aligned.
 
     The benchmark script drops unparseable rows without recording which, which
@@ -54,11 +55,49 @@ def build_pairs(examples, y_mean, y_std, with_neighbors: bool = True):
             lig = to_pyg_data(smiles_to_graph_arrays(ex.ligand_smiles), y=ex.affinity)
             geo = _build_geo_pyg(ex, with_neighbors=with_neighbors)
             geo.y = torch.tensor([(float(ex.affinity) - y_mean) / y_std], dtype=torch.float)
+            if vina_lookup is not None:
+                raw = vina_lookup.get(ex.pdb_id)
+                if raw is None:
+                    continue
+                mean, sd = vina_stats
+                # Standardised with train statistics: the terms span very
+                # different magnitudes (gauss1 in the hundreds, vina_inter
+                # around -10) and would otherwise swamp the tower outputs.
+                geo.gfeat = torch.tensor(
+                    [(np.asarray(raw) - mean) / sd], dtype=torch.float)
         except Exception:
             continue
         pairs.append((lig, geo))
         kept.append(ex)
     return pairs, kept
+
+
+def complex_vina_terms(data_dir: Path, pdb_id: str, cutoff: float = 8.0):
+    """Vina's interaction terms for one complex, from the raw pocket file.
+
+    Deliberately not from the cached GeometryRecord: that keeps only ATOM
+    records within 6 A, dropping cofactors and metals and truncating the
+    longer-range gauss2 term. Measured against affinity, the cache gives
+    r = 0.26 and the raw files 0.47, so the difference is not cosmetic.
+    """
+    import numpy as np
+
+    from caddack.docking.scoring import TERM_NAMES, vina_terms
+    from caddack.gnn.geometry import load_ligand, parse_pdb_atoms
+
+    base = data_dir / "v2015" / pdb_id
+    protein = parse_pdb_atoms(base / f"{pdb_id}_pocket.pdb")
+    ligand = load_ligand(base / f"{pdb_id}_ligand.mol2")
+    if not protein or not ligand:
+        return None
+    lig_pos = np.array([[a.x, a.y, a.z] for a in ligand])
+    lig_z = [a.atomic_num for a in ligand]
+    pro_pos = np.array([[a.x, a.y, a.z] for a in protein])
+    pro_z = np.array([a.atomic_num for a in protein])
+    near = np.sqrt(((pro_pos[:, None, :] - lig_pos[None, :, :]) ** 2).sum(-1)).min(1) <= cutoff
+    t = vina_terms(list(lig_z) + list(pro_z[near]),
+                   np.vstack([lig_pos, pro_pos[near]]), n_ligand=len(lig_z))
+    return [t[k] for k in TERM_NAMES] + [t["vina_inter"]]
 
 
 def structure_payload(ex, decimals: int = 2) -> dict:
@@ -138,6 +177,11 @@ def main(argv=None) -> int:
                     default=True,
                     help="sample only the Bayesian head, leaving the encoders "
                          "deterministic (reproduces the rho=0.07 result)")
+    ap.add_argument("--vina-features", action="store_true",
+                    help="hand Vina's five interaction terms to the Bayesian head "
+                         "alongside the two towers. On a random forest these lift "
+                         "r from 0.585 to 0.636 over nine descriptors alone, so "
+                         "they carry signal the towers were not extracting")
     ap.add_argument("--geo-readout", choices=["interaction", "sum"], default="interaction",
                     help="'interaction' pools over protein-ligand contacts; 'sum' "
                          "pools an undifferentiated bag of atoms, which is a "
@@ -187,8 +231,28 @@ def main(argv=None) -> int:
 
     nf = args.neighbor_features
     print(f"  geometry features: {'element + first neighbours' if nf else 'element only'}")
-    train_pairs, _ = build_pairs(train_ex, y_mean, y_std, with_neighbors=nf)
-    test_pairs, test_kept = build_pairs(test_ex, y_mean, y_std, with_neighbors=nf)
+
+    vina_lookup, vina_stats, n_vina = None, None, 0
+    if args.vina_features:
+        vina_lookup = {}
+        for ex in examples:
+            terms = complex_vina_terms(args.data_dir, ex.pdb_id)
+            if terms is not None:
+                vina_lookup[ex.pdb_id] = terms
+        # Train-set statistics only; using the test set here would leak.
+        train_rows = np.array([vina_lookup[e.pdb_id] for e in train_ex
+                               if e.pdb_id in vina_lookup], dtype=float)
+        mean = train_rows.mean(axis=0)
+        sd = train_rows.std(axis=0, ddof=1)
+        sd[sd == 0] = 1.0
+        vina_stats = (mean, sd)
+        n_vina = train_rows.shape[1]
+        print(f"  vina terms: computed for {len(vina_lookup)}/{len(examples)} "
+              f"complexes, {n_vina} features standardised on train")
+
+    kw = {"with_neighbors": nf, "vina_lookup": vina_lookup, "vina_stats": vina_stats}
+    train_pairs, _ = build_pairs(train_ex, y_mean, y_std, **kw)
+    test_pairs, test_kept = build_pairs(test_ex, y_mean, y_std, **kw)
     n_train = len(train_pairs)
     print(f"  tensorised: train={n_train} test={len(test_pairs)}")
 
@@ -205,6 +269,7 @@ def main(argv=None) -> int:
         num_gine_layers=3, num_geo_interactions=2, num_rbf=24, cutoff=6.0,
         geo_node_feat_dim=NEIGHBOR_FEAT_DIM if nf else 0,
         geo_readout=args.geo_readout,
+        global_feat_dim=n_vina,
         bayesian_hidden=[256, 128], prior_sigma=args.prior_sigma, dropout=args.dropout)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 
@@ -335,7 +400,8 @@ def main(argv=None) -> int:
                          "mc_samples": args.mc_samples, "hidden": args.hidden,
                          "neighbor_features": nf, "mc_dropout": args.mc_dropout,
                          "seed": args.seed, "init_seed": init_seed,
-                         "geo_readout": args.geo_readout}}
+                         "geo_readout": args.geo_readout,
+                         "vina_features": bool(args.vina_features)}}
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(bundle, allow_nan=False), encoding="utf-8")
     print(f"  wrote {args.out} ({args.out.stat().st_size/1e6:.2f} MB, "
