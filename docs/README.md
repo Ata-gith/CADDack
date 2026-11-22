@@ -195,9 +195,28 @@ the bar — +0.012 in r, −0.017 in MAE — are inside the noise. The fair stat
 is that the network has drawn level with five hand-coded physics terms on a
 random forest, not that it has beaten them.
 
-The shrinkage itself is the actionable part, and it is a property of the model
-rather than the features: a lower KL weight, or an explicit calibration layer,
-should recover it without post-hoc fitting.
+**That reading of the shrinkage was too strong, and testing it properly corrected
+it.** The least-squares rescale is `slope = r * sd(y)/sd(pred)`, so with imperfect
+correlation it deliberately keeps predictions compressed: expanding them further
+raises the error. Shrinkage toward the mean is the MSE-optimal response to limited
+correlation, not purely a defect. Only compression beyond that is recoverable, and
+how much there is varies between runs — the model above needed a slope of 1.51,
+a retrained one needed 1.02.
+
+Fitting the rescale properly, on a scaffold-held-out slice of the *training* set
+rather than on test data, is implemented behind `--calibration-frac` but is off by
+default, because it measured worse:
+
+| | train | r | MAE | R² |
+|---|---|---|---|---|
+| no calibration slice | 2,959 | **0.648** | 1.267 | 0.309 |
+| 15% calibration slice | 2,515 | 0.592 | 1.214 | 0.346 |
+
+Removing 444 complexes from training cost 0.056 in r, and the fitted slope came
+out at 1.01, so the calibration itself changed almost nothing. Doing this without
+losing training data needs out-of-fold predictions across a k-fold split of the
+training set, which costs k trainings; that is the version worth building if the
+compression is revisited.
 
 ## Updating RDKit
 

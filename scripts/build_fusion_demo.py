@@ -177,6 +177,16 @@ def main(argv=None) -> int:
                     default=True,
                     help="sample only the Bayesian head, leaving the encoders "
                          "deterministic (reproduces the rho=0.07 result)")
+    ap.add_argument("--calibration-frac", type=float, default=0.0,
+                    help="fraction of TRAIN held out, by scaffold, to fit a linear "
+                         "rescale of the predictions. Off by default: measured at "
+                         "0.15 it cost more than it returned, dropping r from 0.648 "
+                         "to 0.592 by removing 444 training complexes, while the "
+                         "fitted slope came out at 1.01 and changed almost nothing. "
+                         "Least-squares rescaling is slope = r * sd(y)/sd(pred), so "
+                         "with moderate correlation it keeps predictions compressed "
+                         "on purpose -- only compression beyond that is recoverable, "
+                         "and how much there is varies between runs")
     ap.add_argument("--vina-features", action="store_true",
                     help="hand Vina's five interaction terms to the Bayesian head "
                          "alongside the two towers. On a random forest these lift "
@@ -220,6 +230,21 @@ def main(argv=None) -> int:
                                             seed=args.seed, return_report=True)
     train_ex = [examples[i] for i in tr_idx]
     test_ex = [examples[i] for i in te_idx]
+
+    # Carve the calibration slice out of TRAIN, by scaffold, and keep it out of
+    # the gradient updates. Fitting the rescale on data the model trained on
+    # would read a shrinkage smaller than the one it shows on unseen complexes,
+    # and under-correct; fitting it on test would simply be cheating.
+    calib_ex: list = []
+    if args.calibration_frac > 0:
+        sub = pd.DataFrame({"smiles": [e.ligand_smiles for e in train_ex]})
+        fit_idx, cal_idx = scaffold_split(sub, smiles_col="smiles",
+                                          test_size=args.calibration_frac,
+                                          seed=args.seed)
+        calib_ex = [train_ex[i] for i in cal_idx]
+        train_ex = [train_ex[i] for i in fit_idx]
+        print(f"  calibration slice: {len(calib_ex)} held out of train, "
+              f"{len(train_ex)} left to train on")
     print(f"  scaffold split: train={len(train_ex)} test={len(test_ex)} "
           f"achieved={report.achieved_test_size:.3f} groups={report.n_scaffold_groups}")
 
@@ -262,6 +287,7 @@ def main(argv=None) -> int:
     kw = {"with_neighbors": nf, "vina_lookup": vina_lookup, "vina_stats": vina_stats}
     train_pairs, _ = build_pairs(train_ex, y_mean, y_std, **kw)
     test_pairs, test_kept = build_pairs(test_ex, y_mean, y_std, **kw)
+    calib_pairs, _ = build_pairs(calib_ex, y_mean, y_std, **kw) if calib_ex else ([], [])
     n_train = len(train_pairs)
     print(f"  tensorised: train={n_train} test={len(test_pairs)}")
 
@@ -317,6 +343,36 @@ def main(argv=None) -> int:
         model.load_state_dict(torch.load(best_path, map_location="cpu"))
     model.eval()
 
+    def mc_predict(loader):
+        """Mean, epistemic and aleatoric over a loader, in standardised units."""
+        mu_all, epi_all, ale_all, y_all = [], [], [], []
+        with torch.no_grad():
+            for lig_b, geo_b in loader:
+                m, e, a = model.predict_with_uncertainty(
+                    lig_b, geo_b, n_samples=args.mc_samples, mc_dropout=args.mc_dropout)
+                mu_all += m.tolist()
+                epi_all += e.tolist()
+                ale_all += a.tolist()
+                y_all += geo_b.y.view(-1).tolist()
+        return (np.array(mu_all), np.array(epi_all), np.array(ale_all), np.array(y_all))
+
+    # Fit the rescale on the held-out slice, in standardised units, before the
+    # test set is touched.
+    calibration = None
+    if calib_pairs:
+        cal_loader = DataLoader(calib_pairs, batch_size=64, shuffle=False,
+                                collate_fn=collate)
+        cal_mu, _, _, cal_y = mc_predict(cal_loader)
+        if cal_mu.std() > 1e-6:
+            slope, intercept = np.polyfit(cal_mu, cal_y, 1)
+            calibration = {"slope": float(slope), "intercept": float(intercept),
+                           "n_calibration": int(len(cal_mu)),
+                           "spread_ratio_before": float(cal_mu.std(ddof=1) /
+                                                        cal_y.std(ddof=1))}
+            print(f"  calibration fitted on held-out slice: slope {slope:.2f}, "
+                  f"intercept {intercept:+.2f} "
+                  f"(predictions were {100 * (1 - calibration['spread_ratio_before']):.0f}% compressed)")
+
     preds, epis, ales, truth = [], [], [], []
     with torch.no_grad():
         for lig_b, geo_b in test_loader:
@@ -327,8 +383,17 @@ def main(argv=None) -> int:
             ales += a.tolist()
             truth += geo_b.y.view(-1).tolist()
 
+    preds = np.array(preds)
+    if calibration is not None:
+        # Applied in standardised units, where it was fitted. The uncertainties
+        # are scaled by the same slope so the intervals stay consistent with the
+        # widened predictions.
+        preds = calibration["slope"] * preds + calibration["intercept"]
+        epis = [e * abs(calibration["slope"]) for e in epis]
+        ales = [a * abs(calibration["slope"]) for a in ales]
+
     # Back to affinity units. Uncertainties scale but carry no offset.
-    preds = np.array(preds) * y_std + y_mean
+    preds = preds * y_std + y_mean
     truth = np.array(truth) * y_std + y_mean
     epis, ales = np.array(epis) * y_std, np.array(ales) * y_std
     total_sd = np.sqrt(epis ** 2 + ales ** 2)
@@ -411,6 +476,7 @@ def main(argv=None) -> int:
     structures = {pid: structure_payload(by_id[pid]) for pid in showcase if pid in by_id}
 
     bundle = {"metrics": metrics, "split": report.as_dict(), "complexes": records,
+              "calibration": calibration,
               "ad": {"threshold": ad_threshold, "percentile": float(ad.percentile),
                      "n_train": len(train_fps), "n_bits": args.ad_bits,
                      "n_outside": n_out},
