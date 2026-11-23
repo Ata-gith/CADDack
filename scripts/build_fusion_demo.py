@@ -72,7 +72,8 @@ def build_pairs(examples, y_mean, y_std, with_neighbors: bool = True,
     return pairs, kept
 
 
-def complex_vina_terms(data_dir: Path, pdb_id: str, cutoff: float = 8.0):
+def complex_vina_terms(data_dir: Path, pdb_id: str, cutoff: float = 8.0,
+                       with_contacts: bool = False, smiles: str | None = None):
     """Vina's interaction terms for one complex, from the raw pocket file.
 
     Deliberately not from the cached GeometryRecord: that keeps only ATOM
@@ -82,8 +83,10 @@ def complex_vina_terms(data_dir: Path, pdb_id: str, cutoff: float = 8.0):
     """
     import numpy as np
 
-    from caddack.docking.scoring import TERM_NAMES, vina_terms
+    from caddack.docking.scoring import TERM_NAMES, contact_features, vina_terms
     from caddack.gnn.geometry import load_ligand, parse_pdb_atoms
+    from caddack.qsar.descriptors import mol_to_basic_features, smiles_to_mol_clean
+    from caddack.qsar.train_qsar import NUM_DESC
 
     base = data_dir / "v2015" / pdb_id
     protein = parse_pdb_atoms(base / f"{pdb_id}_pocket.pdb")
@@ -95,9 +98,20 @@ def complex_vina_terms(data_dir: Path, pdb_id: str, cutoff: float = 8.0):
     pro_pos = np.array([[a.x, a.y, a.z] for a in protein])
     pro_z = np.array([a.atomic_num for a in protein])
     near = np.sqrt(((pro_pos[:, None, :] - lig_pos[None, :, :]) ** 2).sum(-1)).min(1) <= cutoff
-    t = vina_terms(list(lig_z) + list(pro_z[near]),
-                   np.vstack([lig_pos, pro_pos[near]]), n_ligand=len(lig_z))
-    return [t[k] for k in TERM_NAMES] + [t["vina_inter"]]
+    z = list(lig_z) + list(pro_z[near])
+    xyz = np.vstack([lig_pos, pro_pos[near]])
+    t = vina_terms(z, xyz, n_ligand=len(lig_z))
+    out = [t[k] for k in TERM_NAMES] + [t["vina_inter"]]
+    if with_contacts:
+        # Same 115 the descriptor baseline uses, so the comparison is like for
+        # like: six descriptors, six Vina terms, a hundred binned contact counts.
+        mol = smiles_to_mol_clean(smiles) if smiles else None
+        if mol is None:
+            return None
+        desc = mol_to_basic_features(mol)
+        out = [desc[k] for k in NUM_DESC] + out
+        out += contact_features(z, xyz, n_ligand=len(lig_z)).tolist()
+    return out
 
 
 def structure_payload(ex, decimals: int = 2) -> dict:
@@ -187,6 +201,10 @@ def main(argv=None) -> int:
                          "with moderate correlation it keeps predictions compressed "
                          "on purpose -- only compression beyond that is recoverable, "
                          "and how much there is varies between runs")
+    ap.add_argument("--contact-features", action="store_true",
+                    help="give the head the full 115-feature set the descriptor "
+                         "baseline uses -- descriptors, Vina terms and binned "
+                         "contact counts. Implies --vina-features.")
     ap.add_argument("--vina-features", action="store_true",
                     help="hand Vina's five interaction terms to the Bayesian head "
                          "alongside the two towers. On a random forest these lift "
@@ -258,18 +276,23 @@ def main(argv=None) -> int:
     print(f"  geometry features: {'element + first neighbours' if nf else 'element only'}")
 
     vina_lookup, vina_stats, n_vina = None, None, 0
+    if args.contact_features:
+        args.vina_features = True
     if args.vina_features:
         # Parsing every pocket file takes about as long as a training epoch, so
         # the terms are cached: they depend only on the structures, never on the
         # split or the model, and this script is routinely resumed.
-        cache = args.data_dir / "vina_terms.json"
+        cache = args.data_dir / ("structure_features.json" if args.contact_features
+                                 else "vina_terms.json")
         if cache.exists():
             vina_lookup = json.loads(cache.read_text())
             print(f"  vina terms: loaded {len(vina_lookup)} from {cache.name}")
         else:
             vina_lookup = {}
             for ex in examples:
-                terms = complex_vina_terms(args.data_dir, ex.pdb_id)
+                terms = complex_vina_terms(
+                    args.data_dir, ex.pdb_id,
+                    with_contacts=args.contact_features, smiles=ex.ligand_smiles)
                 if terms is not None:
                     vina_lookup[ex.pdb_id] = terms
             cache.write_text(json.dumps(vina_lookup))

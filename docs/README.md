@@ -140,6 +140,35 @@ The consistent pattern: **describing atom pairs beats describing atoms**. The
 learned encoders are given atoms and have to infer pairwise structure from 2,959
 examples. Handing it to them directly works; expecting them to find it does not.
 
+### Given the same features, the forest still wins
+
+The obvious objection to the table above is that it compares a forest with good
+features against a network with worse ones. So the network was given the same
+set — six descriptors, six Vina terms, a hundred contact counts — straight to its
+head alongside the two towers:
+
+| model | features | r | MAE | R² |
+|---|---|---|---|---|
+| **random forest** | 115 | **0.696** | **1.067** | **0.478** |
+| network, towers only (5 seeds) | 0 | 0.602 | 1.238 | 0.306 |
+| network + Vina terms (3 seeds) | 6 | 0.644 | 1.268 | 0.289 |
+| network + all features (1 seed) | 112 | 0.626 | 1.150 | 0.387 |
+
+The features clearly help the network — MAE 1.268 → 1.150, R² 0.289 → 0.387 — but
+it stays behind the forest on all three, by about 0.07 in r against a seed spread
+of 0.013. The two towers are adding 420,000 parameters and are not buying
+anything the hand-built features do not already provide.
+
+(One seed for the last row, and 112 features against the forest's 115: the three
+missing are atom counts, which the towers observe directly. The gap is large
+enough relative to seed noise to be worth reporting now, but a second seed would
+firm it up.)
+
+On 2,959 training examples that outcome is unsurprising. Gradient-boosted and
+bagged trees on well-constructed features are a strong baseline in this regime,
+and a 420k-parameter network needs either far more data or features that cannot
+be written down by hand.
+
 ### Which warning signal is actually worth listening to
 
 Comparing every available signal against the errors the model made, by rank
