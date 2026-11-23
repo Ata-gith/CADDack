@@ -136,23 +136,19 @@ function drawReliability() {
   const monotonic = errs.every((v, i) => i === 0 || v >= errs[i - 1]);
 
   $("reliabilityVerdict").innerHTML =
-    `<strong>Partly, and it's worth separating two claims.</strong> The intervals are
-     well calibrated <em>in aggregate</em>: ${(m.coverage_1sigma * 100).toFixed(0)}% of
-     measurements fall inside 1σ and ${(m.coverage_2sigma * 100).toFixed(0)}% inside 2σ,
-     against an ideal of 68% and 95%. So if you ask "how often is the truth inside the
-     error bars?", the answer is honest.
+    `<strong>Two different questions, with different answers.</strong>
      <br><br>
-     Telling <em>which individual</em> predictions are bad is a harder job, and here it
-     barely manages. Error rises ${ratio.toFixed(2)}× from the most confident fifth of
-     the test set to the least${monotonic ? "" : ", and not even steadily — the middle"
-     + " bins do not fall in order, so that ratio flatters the trend"}. Across all
-     ${D.complexes.length} complexes the rank correlation between claimed uncertainty and
-     actual error is ρ&nbsp;=&nbsp;${rho.toFixed(2)}, which is close to useless as a
-     per-prediction warning.
+     <em>Are the error bars the right width?</em> Yes.
+     ${(m.coverage_1sigma * 100).toFixed(0)}% of measurements fall inside 1σ and
+     ${(m.coverage_2sigma * 100).toFixed(0)}% inside 2σ, against an ideal of 68% and 95%.
      <br><br>
-     A well-calibrated average is not the same thing as knowing which answers to doubt,
-     and conflating the two is how uncertainty estimates get oversold. This is also one
-     split: treat ρ as indicative, not measured.`;
+     <em>Do they flag which predictions are bad?</em> Barely. Error rises
+     ${ratio.toFixed(2)}× from the most confident fifth of the test set to the least${
+       monotonic ? "" : ", and not in order — the middle bins break the trend"}. Across
+     all ${D.complexes.length} complexes the rank correlation between claimed uncertainty
+     and actual error is ρ&nbsp;=&nbsp;${rho.toFixed(2)}.
+     <br><br>
+     The first does not imply the second, and this is one split, so read ρ as indicative.`;
 }
 
 /** Rank-average two signals into one. Scale-free, so no calibration needed. */
@@ -249,8 +245,8 @@ function select(id) {
   $("selVerdict").className = `verdict ${within ? "ok" : "miss"}`;
   $("selVerdict").textContent = within
     ? `Off by ${err(r).toFixed(2)} pK, inside its own 2σ interval of ±${(2 * sd).toFixed(2)}.`
-    : `Off by ${err(r).toFixed(2)} pK, outside its own 2σ interval of ±${(2 * sd).toFixed(2)} — `
-      + `a confident miss, which is the failure that matters.`;
+    : `Off by ${err(r).toFixed(2)} pK, outside its own 2σ interval of ±${(2 * sd).toFixed(2)}. `
+      + `Wrong, and confident about it.`;
 
   $("parity").querySelectorAll("circle").forEach((c) =>
     c.classList.toggle("sel", c.dataset.id === id));

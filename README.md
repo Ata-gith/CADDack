@@ -6,11 +6,12 @@ and honest evaluation throughout.
 
 **[→ Try the live demos](https://ata-gith.github.io/CADDack/)** — two pages, no install:
 
-- **[Solubility](https://ata-gith.github.io/CADDack/)** — paste any molecule and watch the
-  model admit when it's out of its depth. Runs entirely in your browser.
-- **[Binding affinity](https://ata-gith.github.io/CADDack/fusion.html)** — explore the
-  Bayesian two-tower model's held-out predictions, and check whether the uncertainty it
-  reports actually predicts its errors. (It barely does, and the page says so.)
+- **[Molecule similarity](https://ata-gith.github.io/CADDack/)** — paste a structure, see
+  the closest matches in a 902-molecule reference set ranked by Tanimoto, plus a solubility
+  estimate. Fingerprinting and search run in your browser.
+- **[Binding affinity](https://ata-gith.github.io/CADDack/fusion.html)** — held-out
+  predictions from the Bayesian two-tower model, with a check of whether its reported
+  uncertainty tracks its errors. It barely does, and the page says so.
 
 ---
 

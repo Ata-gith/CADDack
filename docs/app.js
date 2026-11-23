@@ -13,7 +13,7 @@
    --------------------------------------------------------------------------- */
 
 const MODEL_URL = "model.json";
-const N_NEIGHBOURS = 4;
+const N_NEIGHBOURS = 8;
 
 let RDKit = null;
 let M = null;            // decoded model bundle
@@ -179,12 +179,12 @@ function drawSmiles(smiles, w = 150, h = 110) {
 
 /** Solubility in mol/L is log-scaled; show something a person can picture. */
 function plainLanguage(logS) {
-  const gPerL = Math.pow(10, logS) * 200;  // ~200 g/mol stands in for a typical drug
-  if (logS > -1) return "very soluble — dissolves readily in water";
-  if (logS > -2) return "soluble";
-  if (logS > -4) return "moderately soluble";
-  if (logS > -6) return `poorly soluble — roughly ${gPerL.toFixed(2)} g/L`;
-  return "practically insoluble in water";
+  const gPerL = Math.pow(10, logS) * 200;   // ~200 g/mol stands in for a typical drug
+  if (logS > -1) return "Dissolves readily in water.";
+  if (logS > -2) return "Soluble.";
+  if (logS > -4) return "Moderately soluble.";
+  if (logS > -6) return `Poorly soluble, roughly ${gPerL.toFixed(2)} g/L.`;
+  return "Practically insoluble in water.";
 }
 
 function inTrainingSet(canonical) {
@@ -193,13 +193,21 @@ function inTrainingSet(canonical) {
 }
 
 function verdict(sim, memorised) {
-  if (memorised) return { label: "This one is in the training set", cls: "good",
-    note: "The model saw this exact molecule while training, so it is recalling rather than generalising. Useful as a sanity check, not as evidence it works." };
+  if (memorised) return { cls: "good",
+    note: "This exact structure is in the reference set, so the similarity is 1.00 and "
+        + "the solubility estimate is a lookup rather than a prediction." };
   const t = M.ad.threshold;
-  if (sim >= t + 0.25) return { label: "Well inside what I know", cls: "good", note: "There are close analogues in the training set, so this prediction is on solid ground." };
-  if (sim >= t) return { label: "Inside my domain, just", cls: "ok", note: "Reasonably similar to training molecules. Treat the interval as real." };
-  if (sim >= t * 0.6) return { label: "Edge of what I know", cls: "warn", note: "Nothing closely similar was in training. The number is a guess with a wide interval." };
-  return { label: "I don't know this chemistry", cls: "bad", note: "Nothing in the training set resembles this. Do not trust the number — this is exactly where models fail silently." };
+  if (sim >= t + 0.25) return { cls: "good",
+    note: "Close analogues are present, so the estimate rests on molecules the model "
+        + "has actually seen." };
+  if (sim >= t) return { cls: "ok",
+    note: "Similar enough to the reference set for the interval to be meaningful." };
+  if (sim >= t * 0.6) return { cls: "warn",
+    note: "Nothing closely similar in the reference set. The interval is wide and the "
+        + "number is an extrapolation." };
+  return { cls: "bad",
+    note: "No reference molecule resembles this one. The solubility estimate is "
+        + "extrapolation and should not be relied on." };
 }
 
 function render(smiles) {
@@ -209,52 +217,62 @@ function render(smiles) {
     err.textContent = `Not a valid SMILES: ${smiles}`;
     err.hidden = false;
     $("results").hidden = true;
+    $("predictPanel").hidden = true;
     return;
   }
   err.hidden = true;
 
-  const trees = predictPerTree(f.x);
-  const { mean, sd } = meanSd(trees);
   const sims = similarities(f.packed);
   const maxSim = sims.reduce((a, b) => Math.max(a, b), 0);
   const memorised = inTrainingSet(f.canonical);
   const v = verdict(maxSim, memorised);
+  const above = sims.reduce((n, s) => n + (s >= M.ad.threshold ? 1 : 0), 0);
 
+  // --- the search result ---
   $("depiction").innerHTML = f.svg;
   $("canonical").textContent = f.canonical;
+  $("simValue").textContent = maxSim.toFixed(2);
+  $("simCount").textContent = above.toLocaleString();
+  $("simTotal").textContent = M.train.n.toLocaleString();
+  $("simThreshold").textContent = M.ad.threshold.toFixed(2);
+  $("gaugeFill").style.width = `${Math.min(100, maxSim * 100)}%`;
+  $("queryBlock").className = `query ${v.cls}`;
+
+  const nbs = topNeighbours(sims, N_NEIGHBOURS);
+  $("simSummary").textContent = memorised
+    ? "This structure is already in the reference set."
+    : above === 0
+      ? "Nothing in the reference set clears the similarity threshold."
+      : `${above} molecule${above === 1 ? "" : "s"} clear the threshold. The ${nbs.length} closest are shown below.`;
+
+  $("neighbours").innerHTML = nbs.map((nb) => `
+    <figure class="nb">
+      <div class="nbsvg">${drawSmiles(nb.smiles)}</div>
+      <figcaption>
+        <strong>${nb.similarity.toFixed(2)}</strong>
+        <span>log S ${nb.logS.toFixed(2)}</span>
+      </figcaption>
+    </figure>`).join("");
+
+  // --- the secondary solubility estimate ---
+  const trees = predictPerTree(f.x);
+  const { mean, sd } = meanSd(trees);
   $("value").textContent = mean.toFixed(2);
   $("interval").textContent = `± ${(1.96 * sd).toFixed(2)}`;
   $("plain").textContent = plainLanguage(mean);
 
-  // Uncertainty bar, drawn on the data's own range.
   const LO = -11, HI = 2;
   const pct = (x) => Math.max(0, Math.min(100, ((x - LO) / (HI - LO)) * 100));
   $("barFill").style.left = `${pct(mean - 1.96 * sd)}%`;
   $("barFill").style.width = `${pct(mean + 1.96 * sd) - pct(mean - 1.96 * sd)}%`;
   $("barMark").style.left = `${pct(mean)}%`;
 
-  const gauge = $("gauge");
-  gauge.className = `gauge ${v.cls}`;
-  $("gaugeLabel").textContent = v.label;
+  $("gauge").className = `flag ${v.cls}`;
   $("gaugeNote").textContent = v.note;
-  const heavy = f.descriptors.MolWt / 14;
-  const saturated = !memorised && maxSim > 0.95 && f.descriptors.NumRotBonds > 12;
-  $("caveat").hidden = !saturated;
-  $("simValue").textContent = maxSim.toFixed(2);
-  $("simThreshold").textContent = M.ad.threshold.toFixed(2);
-  $("gaugeFill").style.width = `${Math.min(100, maxSim * 100)}%`;
-  $("spread").textContent = sd.toFixed(2);
-
-  $("neighbours").innerHTML = topNeighbours(sims, N_NEIGHBOURS).map((nb) => `
-    <figure class="nb">
-      <div class="nbsvg">${drawSmiles(nb.smiles)}</div>
-      <figcaption>
-        <strong>${(nb.similarity * 100).toFixed(0)}%</strong> similar
-        <span>measured ${nb.logS.toFixed(2)}</span>
-      </figcaption>
-    </figure>`).join("");
+  $("caveat").hidden = !(!memorised && maxSim > 0.95 && f.descriptors.NumRotBonds > 12);
 
   $("results").hidden = false;
+  $("predictPanel").hidden = false;
 }
 
 // --- wiring -----------------------------------------------------------------
@@ -276,7 +294,10 @@ window.addEventListener("DOMContentLoaded", async () => {
     return;
   }
 
-  $("trainN").textContent = M.train.n.toLocaleString();
+  for (const id of ["trainN", "trainN2"]) {
+    const el = $(id);
+    if (el) el.textContent = M.train.n.toLocaleString();
+  }
   $("r2").textContent = M.metrics.r2.toFixed(2);
   $("mae").textContent = M.metrics.mae.toFixed(2);
 

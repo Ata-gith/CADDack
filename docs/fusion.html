@@ -80,10 +80,10 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
 <header>
   <h1>Can it tell when it's wrong?</h1>
-  <p class="sub">A Bayesian neural network that predicts how tightly a molecule binds a
-  protein, using both the ligand's 2D graph and the 3D geometry of the binding site.
-  It reports an uncertainty with every prediction. The question worth asking is whether
-  that uncertainty means anything — so this page checks it against the errors it made.</p>
+  <p class="sub">A Bayesian network predicts binding affinity from the ligand's 2D graph
+  and the 3D geometry of the binding site, and reports an uncertainty with every
+  prediction. This page checks that uncertainty against the errors the model actually
+  made.</p>
 </header>
 
 <p class="loading" id="loading">Loading predictions…</p>
@@ -142,9 +142,9 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
   <div class="panel">
     <h2>Does the uncertainty actually predict the error?</h2>
-    <p class="sub" style="margin-bottom:14px">The test set, split into five groups by how
-    uncertain the model said it was. If the uncertainty is meaningful, the red bars should
-    climb left to right.</p>
+    <p class="sub" style="margin-bottom:14px">The test set in five groups, ordered by how
+    uncertain the model said it was. If the uncertainty means anything, the red bars climb
+    left to right.</p>
     <div id="reliability"></div>
     <div class="legend">
       <span><i class="err"></i>mean absolute error</span>
@@ -156,8 +156,8 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
   <div class="panel" id="signalsPanel">
     <h2>So which warning signal is worth listening to?</h2>
     <p class="sub" style="margin-bottom:16px">Rank correlation between each signal and the
-    error the model actually made, across every held-out complex. Higher is better; a bar
-    in red points the wrong way.</p>
+    error it was computed against, over every held-out complex. Higher is better; red
+    points the wrong way.</p>
     <div id="signals"></div>
     <p class="sub" id="signalsVerdict" style="margin-top:16px"></p>
   </div>
@@ -195,7 +195,7 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
     considerably harder than the usual core-set holdout, and the numbers above are lower
     because of it. Ideal calibration would be 68% and 95% coverage.</p>
 
-    <p><strong>Read this cautiously.</strong> Affinity prediction benchmarks are
+    <p><strong>Caveats.</strong> Affinity prediction benchmarks are
     <a href="https://www.nature.com/articles/s42256-025-01124-5">known to overlap heavily with
     training data</a>, which inflates published figures; the scaffold split here is an attempt
     to avoid that, not a guarantee. The pocket is everything within 6&nbsp;Å of the ligand, so

@@ -3,14 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Does the model actually know? — CADDack</title>
-<meta name="description" content="A molecular property model that tells you when it is out of its depth. Runs entirely in your browser.">
+<title>Molecule similarity search — CADDack</title>
+<meta name="description" content="Paste a structure and see the closest molecules in a reference set, scored by Tanimoto on ECFP4 fingerprints. Runs entirely in the browser.">
 <link rel="stylesheet" href="style.css">
 <style>
 .nav{display:flex;gap:14px;align-items:center;margin-bottom:18px;font-size:.9rem}
 .nav a{color:var(--muted);text-decoration:none;border-bottom:1px solid transparent;padding-bottom:2px}
 .nav a:hover{color:var(--accent);border-color:var(--accent)}
 .nav a.here{color:var(--ink);font-weight:600;border-color:var(--accent)}
+
 form{display:flex;gap:10px;flex-wrap:wrap}
 input[type=text]{flex:1 1 320px;min-width:0;padding:12px 14px;font:15px/1.4 var(--mono);
   color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px}
@@ -22,88 +23,94 @@ input[type=text]:focus{outline:2px solid var(--accent);outline-offset:1px;border
 .chips button{padding:7px 13px;font-size:.88rem;border-radius:20px}
 .chips .spicy{border-style:dashed}
 
-.grid{display:grid;grid-template-columns:minmax(0,260px) minmax(0,1fr);gap:24px;align-items:start}
-@media(max-width:640px){.grid{grid-template-columns:1fr}}
+.query{display:grid;grid-template-columns:minmax(0,240px) minmax(0,1fr);gap:24px;align-items:start}
+@media(max-width:640px){.query{grid-template-columns:1fr}}
 .molbox{background:var(--bg);border:1px solid var(--line);border-radius:12px;
-  padding:10px;display:flex;align-items:center;justify-content:center;min-height:200px}
+  padding:10px;display:flex;align-items:center;justify-content:center;min-height:190px}
 .molbox svg{max-width:100%;height:auto}
 .canon{font:12px/1.5 var(--mono);color:var(--muted);word-break:break-all;margin-top:8px;text-align:center}
 
-.readout{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
-.readout .value{font-size:3rem;font-weight:650;letter-spacing:-.03em;line-height:1}
-.readout .interval{font-size:1.25rem;color:var(--muted);font-variant-numeric:tabular-nums}
-.units{color:var(--muted);font-size:.9rem;margin:6px 0 0}
-.plain{margin:10px 0 0;font-size:1.02rem}
+.topmatch{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.topmatch .value{font-size:3rem;font-weight:650;letter-spacing:-.03em;line-height:1}
+.topmatch .unit{color:var(--muted);font-size:1rem}
+.summary{margin:10px 0 0;font-size:1.02rem}
+.meta{font-size:.8rem;color:var(--muted);font-variant-numeric:tabular-nums;margin:14px 0 0}
 
-.bar{position:relative;height:10px;background:var(--bg);border:1px solid var(--line);
-  border-radius:99px;margin:20px 0 6px;overflow:hidden}
-.bar .fill{position:absolute;top:0;bottom:0;background:color-mix(in srgb,var(--accent) 28%,transparent)}
-.bar .mark{position:absolute;top:-3px;width:3px;height:16px;background:var(--accent);border-radius:2px}
-.scale{display:flex;justify-content:space-between;font-size:.74rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.meter{height:8px;border-radius:99px;background:var(--line);margin:16px 0 6px;overflow:hidden}
+.meter span{display:block;height:100%;border-radius:99px;transition:width .2s}
+.band{display:flex;justify-content:space-between;font-size:.74rem;color:var(--muted)}
+.good .meter span{background:var(--good)} .ok .meter span{background:var(--ok)}
+.warn .meter span{background:var(--warn)} .bad .meter span{background:var(--bad)}
+.good .value{color:var(--good)} .ok .value{color:var(--ok)}
+.warn .value{color:var(--warn)} .bad .value{color:var(--bad)}
 
-.gauge{margin-top:22px;border-radius:12px;padding:16px;border:1px solid var(--line);
-  border-left-width:4px;background:var(--bg)}
-.gauge.good{border-left-color:var(--good)} .gauge.ok{border-left-color:var(--ok)}
-.gauge.warn{border-left-color:var(--warn)} .gauge.bad{border-left-color:var(--bad)}
-.gauge .label{font-weight:650;margin:0 0 4px}
-.gauge.good .label{color:var(--good)} .gauge.ok .label{color:var(--ok)}
-.gauge.warn .label{color:var(--warn)} .gauge.bad .label{color:var(--bad)}
-.gauge .note{margin:0;font-size:.93rem;color:var(--muted)}
-.gauge .caveat{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);color:var(--warn)}
-.gauge .caveat strong{color:var(--warn)}
-.meter{height:7px;border-radius:99px;background:var(--line);margin:12px 0 6px;overflow:hidden}
-.meter span{display:block;height:100%;border-radius:99px;background:currentColor}
-.gauge.good .meter span{background:var(--good)} .gauge.ok .meter span{background:var(--ok)}
-.gauge.warn .meter span{background:var(--warn)} .gauge.bad .meter span{background:var(--bad)}
-.meta{font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums}
-
-.nbs{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+h2{font-size:1rem;margin:0 0 4px}
+.hint{font-size:.88rem;color:var(--muted);margin:0 0 16px}
+.nbs{display:grid;grid-template-columns:repeat(auto-fit,minmax(135px,1fr));gap:12px}
 .nb{margin:0;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px;text-align:center}
-.nbsvg{min-height:110px;display:flex;align-items:center;justify-content:center}
+.nbsvg{min-height:105px;display:flex;align-items:center;justify-content:center}
 .nbsvg svg{max-width:100%;height:auto}
-.nb figcaption{font-size:.78rem;color:var(--muted);line-height:1.5}
-.nb figcaption strong{color:var(--ink);font-size:.9rem}
+.nb figcaption{font-size:.76rem;color:var(--muted);line-height:1.5}
+.nb figcaption strong{color:var(--ink);font-size:1rem;display:block}
 .nb figcaption span{display:block;font-variant-numeric:tabular-nums}
+
+.readout{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.readout .value{font-size:2.2rem;font-weight:650;letter-spacing:-.02em;line-height:1}
+.readout .interval{font-size:1.05rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.units{color:var(--muted);font-size:.85rem;margin:6px 0 0}
+.bar{position:relative;height:9px;background:var(--bg);border:1px solid var(--line);
+  border-radius:99px;margin:16px 0 6px;overflow:hidden}
+.bar .fill{position:absolute;top:0;bottom:0;background:color-mix(in srgb,var(--accent) 28%,transparent)}
+.bar .mark{position:absolute;top:-3px;width:3px;height:15px;background:var(--accent);border-radius:2px}
+.scale{display:flex;justify-content:space-between;font-size:.74rem;color:var(--muted);font-variant-numeric:tabular-nums}
+.flag{margin:14px 0 0;padding:11px 13px;border-radius:9px;font-size:.9rem;
+  border:1px solid var(--line);border-left-width:4px;background:var(--bg);color:var(--muted)}
+.flag.good{border-left-color:var(--good)} .flag.ok{border-left-color:var(--ok)}
+.flag.warn{border-left-color:var(--warn)} .flag.bad{border-left-color:var(--bad)}
+.caveat{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line);color:var(--warn)}
+.caveat strong{color:var(--warn)}
 </style>
 </head>
 <body>
 <div class="wrap">
 
 <nav class="nav">
-  <a href="#" class="here">Solubility</a>
+  <a href="#" class="here">Molecule similarity</a>
   <a href="fusion.html">Binding affinity →</a>
 </nav>
 
 <header>
-  <h1>Does the model actually know?</h1>
-  <p class="sub">Most property predictors hand you a confident number whatever you feed them.
-  This one predicts water solubility <em>and</em> tells you when the molecule is outside the
-  chemistry it learned from. Try to find something it admits it can't handle.</p>
+  <h1>Molecule similarity search</h1>
+  <p class="sub">Paste a structure and see the closest molecules in a reference set of
+  <b id="trainN">—</b>, ranked by Tanimoto similarity on ECFP4 fingerprints. RDKit is
+  compiled to WebAssembly, so the fingerprints and the search run in your browser.
+  Nothing is uploaded.</p>
 </header>
 
-<p class="loading" id="loading">Loading RDKit and the model…</p>
+<p class="loading" id="loading">Loading RDKit and the reference set…</p>
 
 <div id="app" hidden>
   <div class="panel">
     <form id="form">
       <input type="text" id="smiles" spellcheck="false" autocomplete="off"
              aria-label="SMILES string" placeholder="Paste a SMILES string…">
-      <button type="submit" class="primary">Predict</button>
+      <button type="submit" class="primary">Search</button>
     </form>
     <p class="err" id="error" hidden></p>
 
     <div class="presets">
-      <p>Everyday molecules</p>
+      <p>Common molecules</p>
       <div class="chips">
         <button data-smiles="CC(=O)Oc1ccccc1C(=O)O">Aspirin</button>
         <button data-smiles="CC(C)Cc1ccc(cc1)C(C)C(=O)O">Ibuprofen</button>
         <button data-smiles="CN1C=NC2=C1C(=O)N(C)C(=O)N2C">Caffeine</button>
+        <button data-smiles="CC(=O)Nc1ccc(O)cc1">Paracetamol</button>
         <button data-smiles="OCC1OC(O)C(O)C(O)C1O">Glucose</button>
       </div>
     </div>
 
     <div class="presets">
-      <p>Real medicines it was never shown</p>
+      <p>Drugs outside the reference set</p>
       <div class="chips">
         <button data-smiles="CN1CC[C@]23c4c5ccc(O)c4O[C@H]2[C@@H](O)C=C[C@H]3[C@H]1C5">Morphine</button>
         <button data-smiles="N.N.Cl[Pt]Cl">Cisplatin</button>
@@ -113,79 +120,95 @@ input[type=text]:focus{outline:2px solid var(--accent);outline-offset:1px;border
     </div>
 
     <div class="presets">
-      <p>Try to break it</p>
+      <p>Awkward cases</p>
       <div class="chips">
         <button class="spicy" data-smiles="[Na+].[Cl-]">Table salt</button>
         <button class="spicy" data-smiles="c12c3c4c5c1c1c6c7c2c2c8c3c3c9c4c4c%10c5c5c1c1c6c6c%11c7c2c2c7c8c3c3c8c9c4c4c9c%10c5c5c1c1c6c6c%11c2c2c7c3c3c8c4c4c9c5c1c1c6c2c3c41">Buckyball</button>
         <button class="spicy" data-smiles="OC(=O)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)C(F)(F)F">PFOA</button>
         <button class="spicy" data-smiles="[CH-]1C=CC=C1.[CH-]1C=CC=C1.[Fe+2]">Ferrocene</button>
-        <button class="spicy" data-smiles="CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC">A 30-carbon chain</button>
+        <button class="spicy" data-smiles="CCCCCCCCCCCCCCCCCCCCCCCCCCCCCC">C30 chain</button>
       </div>
     </div>
   </div>
 
   <div class="panel" id="results" hidden>
-    <div class="grid">
+    <div class="query" id="queryBlock">
       <div>
         <div class="molbox" id="depiction"></div>
         <div class="canon" id="canonical"></div>
       </div>
 
       <div>
-        <div class="readout">
-          <span class="value" id="value">—</span>
-          <span class="interval" id="interval"></span>
+        <div class="topmatch">
+          <span class="value" id="simValue">—</span>
+          <span class="unit">Tanimoto to the nearest reference molecule</span>
         </div>
-        <p class="units">predicted log solubility (log S, mol/L) · 95% interval from the spread across 100 trees</p>
-        <p class="plain" id="plain"></p>
+        <p class="summary" id="simSummary"></p>
 
-        <div class="bar">
-          <div class="fill" id="barFill"></div>
-          <div class="mark" id="barMark"></div>
-        </div>
-        <div class="scale"><span>−11 (insoluble)</span><span>+2 (very soluble)</span></div>
+        <div class="meter"><span id="gaugeFill"></span></div>
+        <div class="band"><span>0 — nothing in common</span><span>1 — identical bits</span></div>
 
-        <div class="gauge" id="gauge">
-          <p class="label" id="gaugeLabel"></p>
-          <div class="meter"><span id="gaugeFill"></span></div>
-          <p class="meta">nearest training molecule: <b id="simValue"></b> Tanimoto ·
-             in-domain threshold <b id="simThreshold"></b> ·
-             tree spread <b id="spread"></b> log units</p>
-          <p class="note" id="gaugeNote"></p>
-          <p class="note caveat" id="caveat" hidden><strong>But don't trust that gauge here.</strong>
-          Long flexible chains saturate the fingerprint: a 30-carbon chain sets the same bits as a
-          20-carbon one, so the similarity check reports a close match it hasn't earned. The domain
-          check has blind spots of its own.</p>
-        </div>
+        <p class="meta"><b id="simCount">0</b> of <b id="simTotal">0</b> reference molecules
+          score above <b id="simThreshold">—</b>, the 5th percentile of the set's own
+          nearest-neighbour similarities. Fingerprints are Morgan radius 2, 1024 bits,
+          chirality on.</p>
       </div>
     </div>
 
-    <div style="margin-top:26px">
-      <h2>Closest molecules it was trained on</h2>
+    <div style="margin-top:28px">
+      <h2>Closest matches</h2>
+      <p class="hint">Ranked by Tanimoto. The measured solubility of each is shown for
+      reference.</p>
       <div class="nbs" id="neighbours"></div>
     </div>
   </div>
 
+  <div class="panel" id="predictPanel" hidden>
+    <h2>Solubility estimate</h2>
+    <p class="hint">A random forest trained on the same reference set. How much weight it
+    deserves depends on the similarity above.</p>
+    <div class="readout">
+      <span class="value" id="value">—</span>
+      <span class="interval" id="interval"></span>
+    </div>
+    <p class="units">log S (mol/L) · 95% interval from the spread across 100 trees</p>
+    <p class="summary" id="plain"></p>
+
+    <div class="bar">
+      <div class="fill" id="barFill"></div>
+      <div class="mark" id="barMark"></div>
+    </div>
+    <div class="scale"><span>−11 insoluble</span><span>+2 very soluble</span></div>
+
+    <p class="flag" id="gauge"><span id="gaugeNote"></span></p>
+    <p class="flag caveat" id="caveat" hidden><strong>Fingerprint saturation.</strong>
+    Long flexible chains set the same bits once they pass about twenty carbons, so a C30
+    chain matches a C20 one almost exactly. The similarity score is high here but says
+    little.</p>
+  </div>
+
   <footer class="panel">
-    <h2>What this actually is</h2>
-    <p>A random forest trained on <b id="trainN"></b> molecules from the ESOL
-    solubility dataset, held out by <strong>Bemis–Murcko scaffold</strong> rather than at
-    random, so the test molecules were structurally novel. On that honest split it reaches
-    R² <b id="r2"></b> and a mean absolute error of <b id="mae"></b> log units.</p>
+    <h2>How it works</h2>
+    <p>The reference set is <b id="trainN2">—</b> molecules from
+    <a href="https://pubs.acs.org/doi/10.1021/ci034243x">ESOL</a>, a standard solubility
+    dataset. Each is stored as a 1024-bit Morgan fingerprint, packed to 128 bytes, which is
+    what makes shipping the whole set to a browser practical. Your query is fingerprinted
+    the same way and compared by Tanimoto: shared bits over total bits.</p>
 
-    <p>The interval is the spread of the 100 trees, and the domain check is the Tanimoto
-    similarity to the nearest training molecule — below the threshold, the training set simply
-    contains nothing like your input. Both are computed live: RDKit is compiled to WebAssembly
-    and the forest is evaluated in JavaScript, so nothing is sent anywhere and there is no server.</p>
+    <p>Similarity has limits worth knowing. Fingerprints count substructures, so they miss
+    shape and conformation, and they saturate on repetitive molecules. Two compounds scoring
+    0.9 are usually close analogues; two scoring 0.2 are unrelated by this measure but might
+    still bind the same target.</p>
 
-    <p><strong>Caveats worth stating.</strong> Solubility is only one property, measured
-    under specific conditions; ESOL is small and skews toward drug-like organic molecules.
-    Inorganics, salts and polymers are outside its scope by construction, which is exactly why
-    the domain gauge exists. A confident-looking number with a red gauge is still a guess.</p>
+    <p>The solubility model is a random forest on the same fingerprints plus six
+    descriptors, held out by Bemis–Murcko scaffold so the test molecules were structurally
+    novel: R² <b id="r2">—</b>, mean absolute error <b id="mae">—</b> log units. It is
+    trained on drug-like organic molecules, so salts, inorganics and polymers fall outside
+    what it has seen.</p>
 
     <p>Part of <a href="https://github.com/Ata-gith/CADDack">CADDack</a>. The same
-    featurisation, scaffold splitting and applicability-domain code runs in the Python package —
-    see <code>caddack.qsar</code>.</p>
+    fingerprinting, scaffold splitting and similarity code runs in the Python package under
+    <code>caddack.qsar</code>.</p>
   </footer>
 </div>
 

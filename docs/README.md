@@ -4,11 +4,11 @@ Two static pages, live at **https://ata-gith.github.io/CADDack/**.
 
 | Page | Model | Runs where |
 |---|---|---|
-| `index.html` | RandomForest on ECFP4 + descriptors, trained on ESOL | **live in the browser** |
+| `index.html` | Tanimoto search over 902 ECFP4 fingerprints, plus a RandomForest solubility estimate | **live in the browser** |
 | `fusion.html` | `FusionAffinityNet` — two-tower Bayesian GNN, trained on PDBbind | precomputed |
 
-They are different models answering different questions, and the pages say so.
-The solubility page takes any SMILES and predicts live. The affinity page cannot:
+The similarity page takes any SMILES, fingerprints it and searches the reference
+set live. The affinity page cannot run its model in the browser:
 `FusionAffinityNet` needs a protein–ligand complex with 3D coordinates, which a
 visitor cannot type in, and its Bayesian head needs Monte Carlo sampling over
 weight posteriors. So that page explores predictions computed offline by
@@ -24,7 +24,7 @@ run. GitHub Pages serves this directory as-is.
 
 | File | What it is |
 |---|---|
-| `index.html` / `app.js` | Solubility page: featurisation, forest evaluation, Tanimoto, rendering |
+| `index.html` / `app.js` | Similarity page: fingerprinting, Tanimoto search, forest evaluation, rendering |
 | `model.json` | Trained forest + training fingerprints, from `scripts/build_demo_model.py` |
 | `fusion.html` / `fusion.js` | Affinity page: parity plot, reliability chart, 3D viewer |
 | `fusion.json` | Held-out predictions with uncertainty, from `scripts/build_fusion_demo.py` |
