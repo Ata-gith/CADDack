@@ -53,6 +53,15 @@ h2{font-size:1rem;margin:0 0 4px}
 .nb figcaption{font-size:.76rem;color:var(--muted);line-height:1.5}
 .nb figcaption strong{color:var(--ink);font-size:1rem;display:block}
 .nb figcaption span{display:block;font-variant-numeric:tabular-nums}
+.nb{position:relative;transition:border-color .15s}
+.nb:hover,.nb:focus-within{border-color:var(--accent)}
+.nbactions{max-height:0;overflow:hidden;transition:max-height .18s ease}
+.nb:hover .nbactions,.nb:focus-within .nbactions{max-height:140px}
+.nbsmiles{display:block;margin-top:8px;padding:5px 6px;font:11px/1.45 var(--mono);
+  color:var(--muted);background:var(--panel);border:1px solid var(--line);
+  border-radius:6px;word-break:break-all;text-align:left;user-select:all;cursor:text}
+.nbbtns{display:flex;gap:6px;margin-top:6px}
+.nbbtns button{flex:1;padding:5px 6px;font-size:.72rem;border-radius:6px}
 
 .readout{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .readout .value{font-size:2.2rem;font-weight:650;letter-spacing:-.02em;line-height:1}
@@ -81,10 +90,10 @@ h2{font-size:1rem;margin:0 0 4px}
 
 <header>
   <h1>Molecule similarity search</h1>
-  <p class="sub">Paste a structure and see the closest molecules in a reference set of
-  <b id="trainN">—</b>, ranked by Tanimoto similarity on ECFP4 fingerprints. RDKit is
-  compiled to WebAssembly, so the fingerprints and the search run in your browser.
-  Nothing is uploaded.</p>
+  <p class="sub">Paste any valid SMILES and see the closest molecules in a reference set of
+  <b id="trainN">—</b>, ranked by Tanimoto similarity on ECFP4 fingerprints. RDKit runs as
+  WebAssembly, so fingerprinting and search happen in your browser and nothing is
+  uploaded.</p>
 </header>
 
 <p class="loading" id="loading">Loading RDKit and the reference set…</p>
@@ -93,7 +102,7 @@ h2{font-size:1rem;margin:0 0 4px}
   <div class="panel">
     <form id="form">
       <input type="text" id="smiles" spellcheck="false" autocomplete="off"
-             aria-label="SMILES string" placeholder="Paste a SMILES string…">
+             aria-label="SMILES string" placeholder="Any valid SMILES, e.g. CC(=O)Oc1ccccc1C(=O)O">
       <button type="submit" class="primary">Search</button>
     </form>
     <p class="err" id="error" hidden></p>
@@ -157,8 +166,8 @@ h2{font-size:1rem;margin:0 0 4px}
 
     <div style="margin-top:28px">
       <h2>Closest matches</h2>
-      <p class="hint">Ranked by Tanimoto. The measured solubility of each is shown for
-      reference.</p>
+      <p class="hint">Ranked by Tanimoto, with each molecule's measured solubility. Hover a
+      card to read its SMILES, copy it, or search from it.</p>
       <div class="nbs" id="neighbours"></div>
     </div>
   </div>

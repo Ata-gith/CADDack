@@ -66,6 +66,31 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
   background:color-mix(in srgb,var(--accent) 70%,transparent)}
 .sigbar i.neg{background:var(--bad)}
 .sigval{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+.body{font-size:.96rem;line-height:1.68;color:var(--ink);max-width:70ch;margin:0 0 12px}
+.body:last-child{margin-bottom:0}
+.eq{font:13px/1.5 var(--mono);background:var(--bg);border:1px solid var(--line);
+  padding:2px 6px;border-radius:5px;white-space:nowrap}
+.schematic{margin:18px 0 22px;padding:14px;background:var(--bg);
+  border:1px solid var(--line);border-radius:12px;overflow-x:auto}
+.schematic svg{width:100%;min-width:600px;height:auto;display:block}
+.schematic .box{fill:var(--panel);stroke:var(--line);stroke-width:1.2}
+.schematic .box.in{stroke-dasharray:4 3}
+.schematic .box.enc{stroke:color-mix(in srgb,var(--accent) 55%,transparent)}
+.schematic .box.head{stroke:var(--accent);stroke-width:1.6}
+.schematic .box.vec{fill:var(--bg)}
+.schematic .t{fill:var(--ink);font-size:13px;font-weight:600;text-anchor:middle;
+  font-family:ui-sans-serif,system-ui,sans-serif}
+.schematic .s{fill:var(--muted);font-size:11px;text-anchor:middle;
+  font-family:ui-sans-serif,system-ui,sans-serif}
+.schematic .out{fill:var(--accent);font-size:12.5px;font-weight:600;text-anchor:middle;
+  font-family:ui-sans-serif,system-ui,sans-serif}
+.schematic .arrow path{stroke:var(--muted);stroke-width:1.3;fill:none;opacity:.75}
+.defs{margin:14px 0 0;max-width:72ch}
+.defs dt{font-weight:650;margin-top:16px;font-size:.95rem}
+.defs dt:first-child{margin-top:0}
+.defs dd{margin:5px 0 0;font-size:.92rem;line-height:1.65;color:var(--muted)}
+.defs .unit{font-weight:400;color:var(--muted);font-size:.82rem;margin-left:6px}
+.metrics dt{font-variant-numeric:tabular-nums}
 .statline{display:flex;gap:22px;flex-wrap:wrap;font-size:.86rem;color:var(--muted);margin-top:14px}
 .statline b{color:var(--ink);font-variant-numeric:tabular-nums}
 </style>
@@ -97,10 +122,171 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
   <a href="index.html">solubility page</a> does run its model live; this one explores results
   from a held-out test set.</p>
 
+  <section class="panel">
+    <h2>What is being predicted</h2>
+    <p class="body">A protein has a pocket on its surface. A drug-like molecule — the
+    <strong>ligand</strong> — sits in that pocket. The question is how tightly the two
+    stick together.</p>
+
+    <p class="body">Tightness is measured as a dissociation constant <i>K</i><sub>d</sub>,
+    the ligand concentration at which half the pockets are occupied. It spans many orders
+    of magnitude, so it is reported as
+    <span class="eq">p<i>K</i> = −log<sub>10</sub> <i>K</i><sub>d</sub></span>.
+    Higher means tighter, and <strong>one unit means ten times tighter</strong>. The
+    molecules here run from p<i>K</i> 2 to 12, with a standard deviation of 1.88.</p>
+
+    <p class="body">The input is a set of 3D coordinates: the ligand's atoms, plus every
+    protein atom within 6 Å of it. A typical case is 27 ligand atoms and 140 pocket atoms.
+    The output is a single number, plus a statement of how sure the model is about it.</p>
+  </section>
+
+  <section class="panel">
+    <h2>The model</h2>
+    <p class="body">Two encoders read the same complex in different ways, and their outputs
+    are concatenated and fed to a probabilistic head.</p>
+
+    <div class="schematic">
+      <svg viewBox="0 0 760 330" role="img"
+           aria-label="Two encoders feed a Bayesian head that outputs a mean and a variance">
+        <!-- inputs -->
+        <rect class="box in" x="20" y="18" width="200" height="56" rx="8"/>
+        <text class="t" x="120" y="40">ligand, 2D graph</text>
+        <text class="s" x="120" y="60">atoms and bonds, no coordinates</text>
+
+        <rect class="box in" x="300" y="18" width="230" height="56" rx="8"/>
+        <text class="t" x="415" y="40">complex, 3D coordinates</text>
+        <text class="s" x="415" y="60">ligand + pocket, ~167 atoms</text>
+
+        <rect class="box in" x="590" y="18" width="150" height="56" rx="8"/>
+        <text class="t" x="665" y="40">Vina terms</text>
+        <text class="s" x="665" y="60">6 physics scalars</text>
+
+        <!-- encoders -->
+        <rect class="box enc" x="20" y="108" width="200" height="62" rx="8"/>
+        <text class="t" x="120" y="132">message passing ×3</text>
+        <text class="s" x="120" y="152">learns from bond topology</text>
+
+        <rect class="box enc" x="300" y="108" width="230" height="62" rx="8"/>
+        <text class="t" x="415" y="132">distance convolutions ×2</text>
+        <text class="s" x="415" y="152">learns from interatomic distances</text>
+
+        <!-- vectors -->
+        <rect class="box vec" x="55" y="200" width="130" height="34" rx="6"/>
+        <text class="t" x="120" y="222">128 numbers</text>
+        <rect class="box vec" x="350" y="200" width="130" height="34" rx="6"/>
+        <text class="t" x="415" y="222">128 numbers</text>
+        <rect class="box vec" x="600" y="200" width="130" height="34" rx="6"/>
+        <text class="t" x="665" y="222">6 numbers</text>
+
+        <!-- head -->
+        <rect class="box head" x="190" y="262" width="380" height="52" rx="8"/>
+        <text class="t" x="380" y="284">probabilistic head</text>
+        <text class="s" x="380" y="303">weights are distributions, not fixed values</text>
+
+        <!-- arrows -->
+        <g class="arrow">
+          <path d="M120 74 V108"/><path d="M415 74 V108"/>
+          <path d="M120 170 V200"/><path d="M415 170 V200"/><path d="M665 74 V200"/>
+          <path d="M120 234 V248 H380 V262"/>
+          <path d="M415 234 V262"/>
+          <path d="M665 234 V248 H380 V262"/>
+        </g>
+        <text class="out" x="380" y="328">→ predicted pK, and a spread</text>
+      </svg>
+    </div>
+
+    <dl class="defs">
+      <dt>Message passing</dt>
+      <dd>Each atom starts as a vector of its own properties. Repeatedly, every atom's
+      vector is updated with a learned function of its bonded neighbours' vectors. After
+      three rounds each atom's vector reflects its local substructure. Summing them gives
+      one vector for the molecule.</dd>
+
+      <dt>Distance convolutions</dt>
+      <dd>The same idea on coordinates instead of bonds. Atoms within 6 Å are treated as
+      connected, and each message is weighted by a smooth function of the distance between
+      them. Only distances are used, never raw positions, so the output is unchanged if the
+      whole complex is rotated or translated.</dd>
+
+      <dt>Vina terms</dt>
+      <dd>Six scalars from AutoDock Vina's empirical scoring function: four shaped
+      functions of how far each ligand–protein atom pair sits from van der Waals contact,
+      a hydrophobic-contact count, and a hydrogen-bond count. Hand-derived physics rather
+      than anything learned.</dd>
+
+      <dt>Probabilistic head</dt>
+      <dd>An ordinary neural network has one fixed number per weight. Here each weight is a
+      Gaussian distribution, and a prediction is made by drawing a sample from each. Thirty
+      draws give thirty slightly different answers.</dd>
+    </dl>
+  </section>
+
+  <section class="panel">
+    <h2>Two kinds of uncertainty</h2>
+    <p class="body">The head reports a spread as well as a value, and that spread is split
+    into two parts with different meanings.</p>
+
+    <dl class="defs">
+      <dt><strong>Epistemic</strong> — the model's own doubt</dt>
+      <dd>The disagreement between those thirty draws. If they cluster tightly, the training
+      data pinned this prediction down; if they scatter, it did not. In principle this
+      shrinks as training data grows, because it reflects ignorance rather than anything
+      about the world.</dd>
+
+      <dt><strong>Aleatoric</strong> — irreducible noise</dt>
+      <dd>A second output, trained to predict how noisy this particular measurement is. The
+      affinities come from different laboratories using different assays, and the same
+      complex measured twice can differ by around 0.5 p<i>K</i>. No amount of extra data
+      removes that. The model is told to estimate it rather than pretend it is zero.</dd>
+    </dl>
+
+    <p class="body">They combine as
+    <span class="eq">σ<sub>total</sub> = √(σ<sub>epistemic</sub>² + σ<sub>aleatoric</sub>²)</span>,
+    which is the ± figure shown with each prediction.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Reading the numbers</h2>
+    <p class="body">Five quantities, all computed on the 740 complexes held out of
+    training.</p>
+
+    <dl class="defs metrics">
+      <dt>MAE <span class="unit">pK units, lower is better</span></dt>
+      <dd>Mean absolute error: the average size of a miss. An MAE of 1.2 means the typical
+      prediction is off by a factor of about 16 in binding strength. Predicting the training
+      mean for everything scores 1.59, so that is the number to beat for the model to be
+      doing anything at all.</dd>
+
+      <dt>Pearson <i>r</i> <span class="unit">−1 to 1, higher is better</span></dt>
+      <dd>How well predictions and measurements move together as a straight line. It is
+      unaffected by scale: a model that predicts exactly half the true value every time
+      still scores 1. So it measures <em>ranking</em> — whether the model can tell a tight
+      binder from a weak one — and ignores whether the absolute numbers are right.</dd>
+
+      <dt>R² <span class="unit">≤ 1, higher is better</span></dt>
+      <dd><span class="eq">1 − Σ(pred − true)² / Σ(true − mean)²</span>. The fraction of the
+      variance the model accounts for. Unlike <i>r</i> it does punish scale and offset
+      errors, so <i>r</i> can be high while R² is poor. Zero means no better than predicting
+      the mean; negative means worse.</dd>
+
+      <dt>Coverage <span class="unit">target 68% and 95%</span></dt>
+      <dd>How often the measurement actually falls inside the model's stated ±1σ and ±2σ.
+      For a well-calibrated Gaussian these should be 68% and 95%. Below means the error bars
+      are too narrow — overconfident. Above means too wide.</dd>
+
+      <dt>Spearman ρ <span class="unit">−1 to 1, higher is better</span></dt>
+      <dd>Correlation between the model's stated uncertainty and the size of the error it
+      actually made, computed on ranks rather than values. This is the question coverage
+      cannot answer: not "are the error bars the right width on average" but "do they get
+      wider on the predictions that turn out wrong". Zero means they carry no
+      per-prediction information.</dd>
+    </dl>
+  </section>
+
   <div class="panel">
     <div class="split">
       <div>
-        <h2>Every held-out complex</h2>
+        <h2>Predicted against measured</h2>
         <div id="parity"></div>
         <div class="legend">
           <span><i class="plain"></i>test complex</span>
@@ -141,7 +327,7 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
   </div>
 
   <div class="panel">
-    <h2>Does the uncertainty actually predict the error?</h2>
+    <h2>Do the error bars flag the bad predictions?</h2>
     <p class="sub" style="margin-bottom:14px">The test set in five groups, ordered by how
     uncertain the model said it was. If the uncertainty means anything, the red bars climb
     left to right.</p>
@@ -154,7 +340,7 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
   </div>
 
   <div class="panel" id="signalsPanel">
-    <h2>So which warning signal is worth listening to?</h2>
+    <h2>Which signal predicts the errors best?</h2>
     <p class="sub" style="margin-bottom:16px">Rank correlation between each signal and the
     error it was computed against, over every held-out complex. Higher is better; red
     points the wrong way.</p>
@@ -163,7 +349,7 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
   </div>
 
   <div class="panel">
-    <h2>The numbers</h2>
+    <h2>Results on the held-out set</h2>
     <div class="statline">
       <span>MAE <b id="mMae"></b> pK</span>
       <span>R² <b id="mR2"></b></span>
@@ -180,30 +366,73 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
     </div>
   </div>
 
+  <section class="panel">
+    <h2>What would improve this</h2>
+    <p class="body">A random forest on fifteen scalar descriptors — molecular weight,
+    lipophilicity, atom counts, and the six Vina terms — reaches <i>r</i> 0.636 and MAE
+    1.154 on this same split. The network here is level on ranking and behind on accuracy,
+    so it is not yet earning its extra complexity. That comparison, rather than published
+    leaderboards, is what the next change should be measured against.</p>
+
+    <dl class="defs">
+      <dt>1. Interaction features, not just atom features</dt>
+      <dd>The Vina terms helped because they describe <em>pairs</em> of atoms across the
+      interface, which is what binding is. The learned encoders describe atoms, and have to
+      discover pairwise structure themselves from 2,959 examples. Counting contacts binned
+      by distance and atom-type pair — the approach behind the best published scoring
+      models — gives that structure directly instead of hoping it is learned.</dd>
+
+      <dt>2. Direction, not just distance</dt>
+      <dd>The geometry encoder uses only the distance between atoms, which makes it
+      correctly indifferent to rotation but blind to angle. Hydrogen bonds are strongly
+      directional — a donor pointing at an acceptor is worth far more than one beside it —
+      and that distinction is currently invisible.</dd>
+
+      <dt>3. Chemistry the pocket is missing</dt>
+      <dd>Only element and bonded-neighbour counts reach the model. Partial charges,
+      explicit hydrogens and metal ions are absent; cofactors and metals are in fact
+      discarded during preprocessing, so a zinc-dependent enzyme arrives without its zinc.
+      Electrostatics is the largest single term in most binding models and is entirely
+      missing here.</dd>
+
+      <dt>4. More data, and the right kind</dt>
+      <dd>2,959 training complexes against roughly 420,000 parameters. The full PDBbind
+      general set is about four times larger at lower structural quality, and pretraining
+      on it before fine-tuning on the refined subset is the standard remedy. Worth noting
+      that simply using more data has already been tried here without moving the ranking,
+      which is why it sits below the representation changes.</dd>
+
+      <dt>5. Stop the variance absorbing the error</dt>
+      <dd>Predictions span only 0.43 to 0.76 of the measured spread depending on the run.
+      With a loss that lets the model widen its own error bars, hedging toward the mean is
+      a cheap way to reduce it. Weighting the loss so that cannot pay, or calibrating the
+      output scale against held-out data, would convert existing ranking ability into
+      accuracy without changing the architecture.</dd>
+    </dl>
+
+    <p class="body">The honest order is 1, 2, 3 before 4 and 5. Several uncertainty
+    mechanisms have been tried here — a Bayesian posterior, dropout sampling, and an
+    ensemble of five independently trained networks — and none produced an error signal
+    better than measuring how similar the ligand is to the training set. That consistently
+    points at what the model can represent rather than at how it expresses doubt.</p>
+  </section>
+
   <footer class="panel">
-    <h2>What the model is</h2>
-    <p><code>FusionAffinityNet</code> has two encoders. A GINE network reads the ligand's 2D
-    graph with its bond features; a SchNet-style network reads the 3D positions of ligand and
-    pocket atoms through radial-basis distance filters. Their outputs are concatenated into a
-    Bayesian head trained by Bayes-by-Backprop, which learns a distribution over weights rather
-    than point values. Sampling that distribution gives <strong>epistemic</strong> uncertainty,
-    which more data should reduce; a predicted log-variance gives <strong>aleatoric</strong>
-    uncertainty, which it should not.</p>
+    <h2>Data and caveats</h2>
+    <p class="body">Trained on the PDBbind v2015 refined set: 3,699 protein–ligand
+    complexes with crystal structures and measured affinities. The split holds out whole
+    Bemis–Murcko scaffolds — the ring skeleton of a molecule — so the test ligands are
+    structurally novel rather than close relatives of the training ones. That is harder
+    than the usual random split, and the numbers are lower because of it.</p>
 
-    <p>Trained on the PDBbind v2015 refined set, held out by Bemis–Murcko scaffold so test
-    ligands are chemically novel rather than close analogues of the training set. That split is
-    considerably harder than the usual core-set holdout, and the numbers above are lower
-    because of it. Ideal calibration would be 68% and 95% coverage.</p>
+    <p class="body">Affinity benchmarks built on this data are
+    <a href="https://www.nature.com/articles/s42256-025-01124-5">known to overlap heavily
+    between train and test</a>, which inflates published results. The scaffold split here
+    reduces that risk without eliminating it. The pocket stops at 6 Å, so the model never
+    sees the wider protein, and one held-out split is one sample.</p>
 
-    <p><strong>Caveats.</strong> Affinity prediction benchmarks are
-    <a href="https://www.nature.com/articles/s42256-025-01124-5">known to overlap heavily with
-    training data</a>, which inflates published figures; the scaffold split here is an attempt
-    to avoid that, not a guarantee. The pocket is everything within 6&nbsp;Å of the ligand, so
-    the model never sees the wider protein. And a single held-out split, however honest, is one
-    sample.</p>
-
-    <p>Rebuild everything with <code>scripts/build_fusion_demo.py</code>. The mathematics is
-    written up in <a href="elbo_math.pdf">elbo_math.pdf</a> and
+    <p class="body">Rebuild with <code>scripts/build_fusion_demo.py</code>. Full
+    mathematics in <a href="elbo_math.pdf">elbo_math.pdf</a> and
     <a href="caddack_gnn_math.pdf">caddack_gnn_math.pdf</a>. Part of
     <a href="https://github.com/Ata-gith/CADDack">CADDack</a>.</p>
   </footer>

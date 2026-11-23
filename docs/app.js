@@ -245,14 +245,48 @@ function render(smiles) {
       ? "Nothing in the reference set clears the similarity threshold."
       : `${above} molecule${above === 1 ? "" : "s"} clear the threshold. The ${nbs.length} closest are shown below.`;
 
-  $("neighbours").innerHTML = nbs.map((nb) => `
-    <figure class="nb">
+  $("neighbours").innerHTML = nbs.map((nb, i) => `
+    <figure class="nb" data-smiles="${nb.smiles.replace(/"/g, "&quot;")}">
       <div class="nbsvg">${drawSmiles(nb.smiles)}</div>
       <figcaption>
         <strong>${nb.similarity.toFixed(2)}</strong>
         <span>log S ${nb.logS.toFixed(2)}</span>
       </figcaption>
+      <div class="nbactions">
+        <code class="nbsmiles">${nb.smiles}</code>
+        <div class="nbbtns">
+          <button type="button" class="copy" data-i="${i}">Copy SMILES</button>
+          <button type="button" class="use" data-i="${i}">Search this</button>
+        </div>
+      </div>
     </figure>`).join("");
+
+  // Copy, and search-from-a-match so the set can be explored by walking it.
+  $("neighbours").querySelectorAll(".copy").forEach((btn) =>
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const smi = nbs[+btn.dataset.i].smiles;
+      try {
+        await navigator.clipboard.writeText(smi);
+        btn.textContent = "Copied";
+      } catch {
+        // Clipboard access can be blocked; select the text so Ctrl+C still works.
+        const code = btn.closest(".nb").querySelector(".nbsmiles");
+        const range = document.createRange();
+        range.selectNodeContents(code);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        btn.textContent = "Selected — press Ctrl+C";
+      }
+      setTimeout(() => { btn.textContent = "Copy SMILES"; }, 1600);
+    }));
+  $("neighbours").querySelectorAll(".use").forEach((btn) =>
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      submit(nbs[+btn.dataset.i].smiles);
+      document.getElementById("results").scrollIntoView({ behavior: "smooth" });
+    }));
 
   // --- the secondary solubility estimate ---
   const trees = predictPerTree(f.x);
