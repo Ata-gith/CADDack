@@ -20,6 +20,7 @@ and honest evaluation throughout.
 ```
 src/caddack/
 ├── qsar/      SMILES → features, scaffold splitting, curation, applicability domain
+├── affinity/  protein-ligand binding affinity (the recommended model)
 ├── gnn/       molecular graphs, GCN/GINE, a Bayesian two-tower affinity model
 ├── docking/   AutoDock Vina pose generation
 └── fetch/     ChEMBL / UniProt / RCSB downloads
@@ -81,13 +82,22 @@ Run `caddack --help` for all subcommands: `fetch`, `qsar-descriptors`, `qsar-tra
 |---|---|---|
 | 0.78 | 0.74 log units | 0.90 |
 
-**Binding affinity (PDBbind, p*K* units)** — the Bayesian two-tower model:
+**Binding affinity (PDBbind refined, scaffold split, p*K* units)** — three scaffold
+splits, mean ± sd:
 
-| Training set | Split | MAE | R² | Pearson *r* | Coverage 1σ / 2σ |
-|---|---|---|---|---|---|
-| Refined | core holdout | 1.28 | 0.47 | 0.69 | 64% / 94% |
-| Refined | **scaffold** | 1.32 | 0.31 | 0.57 | 67% / 94% |
-| *predict the mean* | — | 1.82 | 0.00 | — | — |
+| Model | MAE | R² | Pearson *r* |
+|---|---|---|---|
+| **random forest, 115 interaction features** | **1.069 ± 0.002** | **0.476 ± 0.015** | **0.693 ± 0.011** |
+| Bayesian two-tower network, same features | 1.150 | 0.387 | 0.626 |
+| Bayesian two-tower network, towers only | 1.238 ± 0.086 | 0.306 ± 0.083 | 0.602 ± 0.038 |
+| *predict the mean* | 1.587 | 0.00 | — |
+
+The random forest is what `caddack.affinity` ships. The network came first and is
+still in `caddack.gnn`, but it loses on every metric and keeps losing when given
+the same features, so it is no longer the recommended path. Most of the forest's
+advantage comes from features describing atom **pairs** across the interface —
+Vina's interaction terms plus contact counts binned by element pair and distance —
+rather than from anything about the model class.
 
 Uncertainty estimates are close to calibrated (ideal is 68% / 95%). For context, on
 CASF-style core holdouts classical scoring functions reach Pearson *r* ≈ 0.57–0.61 and
