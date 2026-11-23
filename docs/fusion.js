@@ -231,6 +231,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   drawParity();
   drawHeadToHead();
   drawNetworkUncertainty();
+  wireUpload();
   $("loading").hidden = true;
   $("app").hidden = false;
 
@@ -346,4 +347,131 @@ function drawNetworkUncertainty() {
      and an ensemble of five independently trained networks — and none beat the
      similarity lookup. Read the middle rows as tied: repeating the measurement
      moves each by about ±0.02.`;
+}
+
+// --- scoring an uploaded pose ------------------------------------------------
+// The forest can run here, so it does. Features are built by docs/dock.js, whose
+// agreement with the Python implementation is checked numerically by
+// scripts/check_browser_features.py rather than assumed.
+
+let dockForest = null;
+let RDKitDock = null;
+const uploaded = { receptor: null, ligand: null };
+
+function solubilityWords(pk) {
+  if (pk >= 9) return "Very tight binding, in the nanomolar range or below.";
+  if (pk >= 7) return "Tight binding, roughly 10–100 nanomolar.";
+  if (pk >= 5) return "Moderate binding, roughly micromolar.";
+  return "Weak binding, in the millimolar range.";
+}
+
+/** The six descriptors, from a SMILES. Returns null if RDKit cannot parse it. */
+function descriptorsFromSmiles(smiles) {
+  if (!RDKitDock) return null;
+  const mol = RDKitDock.get_mol(smiles);
+  if (!mol || !mol.is_valid()) { mol?.delete(); return null; }
+  const d = JSON.parse(mol.get_descriptors());
+  const heavy = d.NumHeavyAtoms;
+  mol.delete();
+  return {
+    descriptors: {
+      MolWt: d.amw, LogP: d.CrippenClogP, TPSA: d.tpsa,
+      NumHBD: d.NumHBD, NumHBA: d.NumHBA, NumRotBonds: d.NumRotatableBonds,
+    },
+    heavy,
+  };
+}
+
+function scorePose() {
+  const err = $("dockError");
+  const show = (msg) => { err.textContent = msg; err.hidden = false;
+                          $("dockResult").hidden = true; };
+
+  if (!uploaded.receptor || !uploaded.ligand) {
+    return show("Choose both a receptor and a ligand PDBQT.");
+  }
+  const D = window.CADDackDock;
+  const rec = D.parsePdbqt(uploaded.receptor);
+  const lig = D.parsePdbqt(uploaded.ligand);
+  if (!lig.z.length) return show("No atoms found in the ligand file. Is it a PDBQT?");
+  if (!rec.z.length) return show("No atoms found in the receptor file. Is it a PDBQT?");
+
+  const smiles = $("dockSmiles").value.trim();
+  let desc = smiles ? descriptorsFromSmiles(smiles) : null;
+  if (smiles && !desc) return show(`Could not parse that SMILES: ${smiles}`);
+
+  const approximate = !desc;
+  if (approximate) {
+    // Without a SMILES the six descriptors are unavailable. Zeros are honest
+    // placeholders rather than guesses, but the forest was trained with real
+    // values, so the prediction is flagged.
+    desc = { descriptors: { MolWt: 0, LogP: 0, TPSA: 0, NumHBD: 0, NumHBA: 0,
+                            NumRotBonds: 0 }, heavy: lig.z.filter((z) => z !== 1).length };
+  }
+
+  const z = [...lig.z, ...rec.z];
+  const xyz = [...lig.xyz, ...rec.xyz];
+  const inter = D.interactionFeatures(z, xyz, lig.z.length);
+  if (inter.nContacts === 0) {
+    return show("The ligand makes no contacts within 8 Å of the receptor. "
+              + "Are the two files in the same coordinate frame?");
+  }
+
+  const x = D.buildFeatureVector(desc.descriptors, desc.heavy, inter);
+  if (x.length !== F.feature_names.length) {
+    return show(`Built ${x.length} features but the model expects ${F.feature_names.length}.`);
+  }
+
+  const perTree = D.predictPerTree(dockForest, x);
+  const mean = perTree.reduce((s, v) => s + v, 0) / perTree.length;
+  const sd = Math.sqrt(perTree.reduce((s, v) => s + (v - mean) ** 2, 0) / perTree.length);
+
+  err.hidden = true;
+  $("dockPred").textContent = mean.toFixed(2);
+  $("dockSpread").textContent = sd.toFixed(2);
+  $("dockPlain").textContent = solubilityWords(mean);
+  $("dockNLig").textContent = lig.z.length.toLocaleString();
+  $("dockNRec").textContent = rec.z.length.toLocaleString();
+  $("dockNContacts").textContent = inter.nContacts.toLocaleString();
+  $("dockVina").textContent = inter.vina_inter.toFixed(2);
+
+  const notes = [];
+  if (approximate) {
+    notes.push("No SMILES was given, so the six ligand descriptors are zero rather "
+             + "than measured. The interaction features are still exact, but treat "
+             + "the number as indicative.");
+  }
+  notes.push("The model was trained on crystal structures. A docked pose is a "
+           + "prediction, so an error in the pose becomes an error here, and this "
+           + "says how good <em>this</em> pose looks rather than how well the molecule "
+           + "binds.");
+  $("dockCaveat").innerHTML = notes.join(" ");
+  $("dockResult").hidden = false;
+}
+
+function wireUpload() {
+  dockForest = window.CADDackDock.decodeForest(F.forest);
+
+  const bind = (inputId, nameId, key) => {
+    $(inputId).addEventListener("change", (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      $(nameId).textContent = `${file.name} (${(file.size / 1024).toFixed(0)} KB)`;
+      const reader = new FileReader();
+      reader.onload = () => { uploaded[key] = reader.result; };
+      reader.onerror = () => {
+        $("dockError").textContent = `Could not read ${file.name}.`;
+        $("dockError").hidden = false;
+      };
+      reader.readAsText(file);
+    });
+  };
+  bind("recFile", "recName", "receptor");
+  bind("ligFile", "ligName", "ligand");
+  $("dockRun").addEventListener("click", scorePose);
+
+  // RDKit is only needed for the descriptors, so the panel works without waiting.
+  if (typeof initRDKitModule === "function") {
+    initRDKitModule().then((rdkit) => { RDKitDock = rdkit; }).catch(() => {});
+  }
 }

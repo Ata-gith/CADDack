@@ -56,6 +56,26 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
 .chips button{padding:7px 13px;font-size:.86rem;border-radius:20px}
+.dockform{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));
+  gap:12px;margin:16px 0 12px}
+.drop{display:block;padding:14px;border:1px dashed var(--line);border-radius:10px;
+  background:var(--bg);cursor:pointer;transition:border-color .15s}
+.drop:hover,.drop:focus-within{border-color:var(--accent)}
+.droplabel{display:block;font-size:.88rem;font-weight:600}
+.droplabel em{font-weight:400;color:var(--muted);font-style:normal}
+.drop input[type=file]{display:block;margin-top:8px;font-size:.8rem;max-width:100%}
+.dropname{display:block;margin-top:6px;font:11px/1.4 var(--mono);color:var(--muted);
+  word-break:break-all}
+.dockrow{display:flex;gap:10px;flex-wrap:wrap}
+.dockrow input[type=text]{flex:1 1 300px;min-width:0;padding:11px 13px;
+  font:14px/1.4 var(--mono);color:var(--ink);background:var(--bg);
+  border:1px solid var(--line);border-radius:10px}
+.dockrow input[type=text]:focus{outline:2px solid var(--accent);outline-offset:1px;
+  border-color:transparent}
+.dockout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:22px;
+  margin-top:18px;align-items:start}
+@media(max-width:640px){.dockout{grid-template-columns:1fr}}
+.dockout .unit{color:var(--muted);font-size:1rem;font-weight:400}
 .h2h{margin-top:14px}
 .h2hhead,.h2hrow{display:grid;grid-template-columns:minmax(0,15rem) 1fr 4.5rem 4.5rem 4.5rem;
   gap:10px;align-items:center;padding:7px 0;font-size:.9rem}
@@ -329,6 +349,50 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
     </div>
   </div>
 
+  <section class="panel" id="dockPanel">
+    <h2>Score your own pose</h2>
+    <p class="body">The shipped model is a forest, so it can run here. Give it a receptor
+    and a docked ligand as PDBQT — what AutoDock Vina reads and writes — and it will build
+    the same 113 features and walk the same trees. Nothing is uploaded; the files are read
+    in your browser.</p>
+
+    <div class="dockform">
+      <label class="drop" for="recFile">
+        <span class="droplabel">Receptor PDBQT</span>
+        <input type="file" id="recFile" accept=".pdbqt,.pdb,text/plain">
+        <span class="dropname" id="recName">no file chosen</span>
+      </label>
+      <label class="drop" for="ligFile">
+        <span class="droplabel">Ligand PDBQT <em>(the docked pose)</em></span>
+        <input type="file" id="ligFile" accept=".pdbqt,.pdb,text/plain">
+        <span class="dropname" id="ligName">no file chosen</span>
+      </label>
+    </div>
+    <div class="dockrow">
+      <input type="text" id="dockSmiles" spellcheck="false" autocomplete="off"
+             placeholder="Ligand SMILES — optional, but the six descriptors need it">
+      <button type="button" id="dockRun" class="primary">Score pose</button>
+    </div>
+    <p class="err" id="dockError" hidden></p>
+
+    <div id="dockResult" hidden>
+      <div class="dockout">
+        <div>
+          <div class="big"><span id="dockPred">—</span> <span class="unit">pK</span></div>
+          <p class="meta">± <span id="dockSpread">—</span> across the trees</p>
+          <p class="body" id="dockPlain" style="margin-top:8px"></p>
+        </div>
+        <dl class="kv">
+          <dt>ligand atoms</dt><dd id="dockNLig"></dd>
+          <dt>receptor atoms</dt><dd id="dockNRec"></dd>
+          <dt>contacts within 8 Å</dt><dd id="dockNContacts"></dd>
+          <dt>Vina interaction term</dt><dd><span id="dockVina"></span> kcal/mol</dd>
+        </dl>
+      </div>
+      <p class="flag warn" id="dockCaveat"></p>
+    </div>
+  </section>
+
   <section class="panel">
     <h2>Network prediction</h2>
     <p class="body">The two-tower Bayesian graph network was built before the forest and
@@ -454,6 +518,8 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
 </div>
 <script src="3Dmol-min.js"></script>
+<script src="RDKit_minimal.js"></script>
+<script src="dock.js"></script>
 <script src="fusion.js"></script>
 </body>
 </html>

@@ -282,6 +282,35 @@ losing training data needs out-of-fold predictions across a k-fold split of the
 training set, which costs k trainings; that is the version worth building if the
 compression is revisited.
 
+## Scoring an uploaded pose
+
+The affinity page takes a receptor and a docked ligand as PDBQT and scores them
+client-side. This is possible because the shipped model is a forest: `docs/dock.js`
+parses the files, rebuilds the 113 features and walks the trees, the same route
+the similarity page uses. The graph network could not be served this way at all —
+its topology is constructed inside the forward pass — which is part of why the
+forest is what ships.
+
+107 of the 113 features come from coordinates alone. The six ligand descriptors
+need bonding, which PDBQT does not record, so a SMILES is asked for; without one
+they are zeroed and the prediction is flagged as indicative.
+
+**The JavaScript is checked against Python, not assumed to agree.**
+
+```bash
+python scripts/check_browser_features.py --data-dir /path/to/pdbbind
+```
+
+It writes PDBQT fixtures from real complexes, computes the features both ways and
+compares. Current agreement is 7e-13, i.e. floating-point noise. The first run of
+that check failed, which is the point of having it: the fixture writer had
+mis-counted PDB columns, putting coordinates one column left of where the parser
+reads them.
+
+Two caveats are shown on the page. The model was trained on crystal structures,
+so a docked pose is out of distribution to the extent the pose is wrong; and the
+answer describes *this pose*, not how well the molecule binds in general.
+
 ## Updating RDKit
 
 The WASM build is vendored rather than loaded from a CDN, so the page keeps
