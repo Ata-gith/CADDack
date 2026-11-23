@@ -136,3 +136,94 @@ def vina_terms(
         # than adding it, so the correction scales with the interaction.
         terms["vina_score"] = terms["vina_inter"] / (1.0 + _ROT_WEIGHT * n_rotatable)
     return terms
+
+
+# --- distance-binned contact counts -------------------------------------------
+# Vina's terms collapse every atom pair into five numbers. Published scoring
+# models that rank well on this task instead count contacts separately for each
+# combination of atom types and distance shell, letting the model weigh a
+# carbon-carbon contact at 3.5 A differently from a nitrogen-oxygen one at 6 A.
+# That is structure a network would otherwise have to discover from a few
+# thousand examples.
+
+# Element classes, coarse enough that 2,959 training complexes can populate the
+# bins. Everything unlisted (metals, boron, selenium) lands in "other".
+_ATOM_CLASSES: tuple[tuple[str, frozenset[int]], ...] = (
+    ("C", frozenset({6})),
+    ("N", frozenset({7})),
+    ("O", frozenset({8})),
+    ("X", frozenset({16, 15, 9, 17, 35, 53})),   # S, P, halogens
+)
+_N_CLASSES = len(_ATOM_CLASSES) + 1              # + "other"
+# Shell edges in angstroms. The first captures hydrogen-bond and close-contact
+# range, the last reaches past Vina's own 8 A cutoff.
+CONTACT_SHELLS: tuple[float, ...] = (3.5, 4.5, 6.0, 8.0)
+CONTACT_FEAT_DIM = _N_CLASSES * _N_CLASSES * len(CONTACT_SHELLS)
+
+
+def _class_index(z: np.ndarray) -> np.ndarray:
+    idx = np.full(z.shape, _N_CLASSES - 1, dtype=int)     # default: "other"
+    for i, (_, members) in enumerate(_ATOM_CLASSES):
+        idx[np.isin(z, list(members))] = i
+    return idx
+
+
+def contact_feature_names() -> list[str]:
+    labels = [name for name, _ in _ATOM_CLASSES] + ["other"]
+    out = []
+    for lo, hi in zip((0.0,) + CONTACT_SHELLS[:-1], CONTACT_SHELLS):
+        for a in labels:
+            for b in labels:
+                out.append(f"contact_{a}{b}_{lo:g}-{hi:g}A")
+    return out
+
+
+def contact_features(
+    atomic_nums: Sequence[int],
+    positions: Sequence[tuple[float, float, float]],
+    n_ligand: int,
+    normalise: bool = True,
+) -> np.ndarray:
+    """Count ligand-protein atom pairs by element class and distance shell.
+
+    Returns ``CONTACT_FEAT_DIM`` counts: one per (ligand class, protein class,
+    shell). Hydrogens are ignored, matching the Vina terms, since protonation in
+    the source structures is partial and inconsistent.
+
+    With ``normalise`` the counts are divided by the ligand's heavy-atom count,
+    so the features describe contacts *per ligand atom* rather than growing with
+    molecular size. Raw counts correlate strongly with how many atoms are present,
+    which is the shortcut that let an atom inventory stand in for the geometry.
+    """
+    z = np.asarray(atomic_nums, dtype=int)
+    pos = np.asarray(positions, dtype=float)
+    if z.shape[0] != pos.shape[0]:
+        raise ValueError("atomic_nums and positions must have equal length")
+
+    heavy = z != 1
+    if not heavy.all():
+        n_ligand = int(heavy[:n_ligand].sum())
+        z, pos = z[heavy], pos[heavy]
+
+    out = np.zeros(CONTACT_FEAT_DIM, dtype=float)
+    if n_ligand <= 0 or n_ligand >= len(z):
+        return out
+
+    lig, poc = slice(0, n_ligand), slice(n_ligand, None)
+    dist = np.linalg.norm(pos[lig][:, None, :] - pos[poc][None, :, :], axis=-1)
+    lig_cls = _class_index(z[lig])
+    poc_cls = _class_index(z[poc])
+    pair_cls = lig_cls[:, None] * _N_CLASSES + poc_cls[None, :]
+
+    lower = 0.0
+    per_shell = _N_CLASSES * _N_CLASSES
+    for s, upper in enumerate(CONTACT_SHELLS):
+        in_shell = (dist > lower) & (dist <= upper)
+        if in_shell.any():
+            counts = np.bincount(pair_cls[in_shell], minlength=per_shell)
+            out[s * per_shell:(s + 1) * per_shell] = counts
+        lower = upper
+
+    if normalise:
+        out /= max(n_ligand, 1)
+    return out

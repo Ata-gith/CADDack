@@ -5,6 +5,7 @@ energy that cannot be computed from an atom inventory, only from the geometry.
 Added after the affinity model was found to be reproducible by nine scalar
 descriptors, i.e. to be ignoring the structure.
 """
+import numpy as np
 import pytest
 
 from caddack.docking.scoring import TERM_NAMES, WEIGHTS, vina_terms
@@ -122,3 +123,103 @@ def test_module_imports_without_rdkit_or_vina():
     import caddack.docking.scoring as s
 
     assert s.vina_terms is not None
+
+
+# --- distance-binned contact features -----------------------------------------
+# Vina's five terms collapse every atom pair into five numbers. Counting pairs
+# separately by element class and distance shell keeps information those five
+# average away, and lifted the descriptor baseline from r 0.636 to 0.696.
+
+def test_contact_features_have_the_declared_width():
+    from caddack.docking.scoring import CONTACT_FEAT_DIM, contact_features
+
+    f = contact_features([6, 6], [(0.0, 0.0, 0.0), (3.0, 0.0, 0.0)], n_ligand=1)
+    assert f.shape == (CONTACT_FEAT_DIM,)
+
+
+def test_names_line_up_with_the_vector():
+    from caddack.docking.scoring import CONTACT_FEAT_DIM, contact_feature_names
+
+    names = contact_feature_names()
+    assert len(names) == CONTACT_FEAT_DIM
+    assert len(set(names)) == CONTACT_FEAT_DIM
+
+
+def test_a_contact_lands_in_the_shell_its_distance_falls_in():
+    from caddack.docking.scoring import contact_feature_names, contact_features
+
+    names = contact_feature_names()
+    for distance, shell in [(3.0, "0-3.5A"), (4.0, "3.5-4.5A"),
+                            (5.0, "4.5-6A"), (7.0, "6-8A")]:
+        f = contact_features([6, 6], [(0.0, 0.0, 0.0), (distance, 0.0, 0.0)], n_ligand=1)
+        hit = [names[i] for i in np.flatnonzero(f)]
+        assert hit == [f"contact_CC_{shell}"], f"{distance} A landed in {hit}"
+
+
+def test_pairs_beyond_the_outer_shell_are_dropped():
+    from caddack.docking.scoring import contact_features
+
+    assert contact_features([6, 6], [(0.0, 0.0, 0.0), (12.0, 0.0, 0.0)],
+                            n_ligand=1).sum() == 0
+
+
+def test_element_classes_are_distinguished_and_ordered():
+    """A ligand nitrogen facing a protein oxygen is a different bin from the
+    reverse, since ligand and protein are not interchangeable."""
+    from caddack.docking.scoring import contact_feature_names, contact_features
+
+    names = contact_feature_names()
+    n_then_o = contact_features([7, 8], [(0.0, 0.0, 0.0), (3.0, 0.0, 0.0)], n_ligand=1)
+    o_then_n = contact_features([8, 7], [(0.0, 0.0, 0.0), (3.0, 0.0, 0.0)], n_ligand=1)
+    assert names[int(np.flatnonzero(n_then_o)[0])] == "contact_NO_0-3.5A"
+    assert names[int(np.flatnonzero(o_then_n)[0])] == "contact_ON_0-3.5A"
+
+
+def test_unlisted_elements_fall_into_other():
+    from caddack.docking.scoring import contact_feature_names, contact_features
+
+    names = contact_feature_names()
+    f = contact_features([30, 6], [(0.0, 0.0, 0.0), (3.0, 0.0, 0.0)], n_ligand=1)  # Zn
+    assert names[int(np.flatnonzero(f)[0])] == "contact_otherC_0-3.5A"
+
+
+def test_normalisation_makes_the_features_size_independent():
+    """Raw counts grow with atom count, which is the shortcut that let an atom
+    inventory stand in for the geometry. Per-ligand-atom counts do not."""
+    from caddack.docking.scoring import contact_features
+
+    small = contact_features([6, 6], [(0.0, 0.0, 0.0), (3.0, 0.0, 0.0)], n_ligand=1)
+    # Two ligand atoms, each with its own equivalent contact: same per-atom rate.
+    big = contact_features([6, 6, 6, 6],
+                           [(0.0, 0.0, 0.0), (0.0, 20.0, 0.0),
+                            (3.0, 0.0, 0.0), (3.0, 20.0, 0.0)], n_ligand=2)
+    assert big.sum() == pytest.approx(small.sum())
+    raw = contact_features([6, 6, 6, 6],
+                           [(0.0, 0.0, 0.0), (0.0, 20.0, 0.0),
+                            (3.0, 0.0, 0.0), (3.0, 20.0, 0.0)],
+                           n_ligand=2, normalise=False)
+    assert raw.sum() == pytest.approx(2 * small.sum())
+
+
+def test_hydrogens_are_ignored_as_in_the_vina_terms():
+    from caddack.docking.scoring import contact_features
+
+    without = contact_features([6, 6], [(0.0, 0.0, 0.0), (3.0, 0.0, 0.0)], n_ligand=1)
+    with_h = contact_features([6, 1, 6], [(0.0, 0.0, 0.0), (1.1, 0.0, 0.0), (3.0, 0.0, 0.0)],
+                              n_ligand=2)
+    assert np.allclose(with_h, without)
+
+
+def test_only_cross_interface_pairs_are_counted():
+    from caddack.docking.scoring import contact_features
+
+    assert contact_features([6, 6], [(0.0, 0.0, 0.0), (3.0, 0.0, 0.0)],
+                            n_ligand=2).sum() == 0
+
+
+def test_contact_features_handle_degenerate_inputs():
+    from caddack.docking.scoring import CONTACT_FEAT_DIM, contact_features
+
+    assert contact_features([], [], n_ligand=0).shape == (CONTACT_FEAT_DIM,)
+    with pytest.raises(ValueError):
+        contact_features([6, 6], [(0.0, 0.0, 0.0)], n_ligand=1)

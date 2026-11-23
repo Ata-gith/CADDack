@@ -6,10 +6,19 @@ heavy-atom count, the pocket's atom count, and their ratio -- uses no 3D
 information beyond how many protein atoms sit within the cutoff. On the PDBbind
 refined set with a scaffold split it reaches r = 0.585, R2 = 0.339, MAE = 1.208.
 
-With --vina-terms it also gets Vina's five interaction terms, which do use the
-geometry, and reaches r = 0.636, R2 = 0.403, MAE = 1.154. The gain holds across
-split seeds (r +0.038 to +0.051 on three), so explicit interaction energy helps
-even a model with no learned representation at all. That is the harder bar.
+--vina-terms adds Vina's five interaction terms, which do use the geometry:
+r = 0.636, R2 = 0.403, MAE = 1.154.
+
+--contact-features adds 100 more -- ligand-protein pair counts split by element
+class and distance shell -- and reaches r = 0.696, R2 = 0.478, MAE = 1.067,
+averaged over three split seeds and improving on all three. That is the bar now,
+and it is a substantial one: it beats the two-tower Bayesian network, which
+manages r 0.644 and MAE 1.268 on the same split.
+
+The pattern across all of it is that describing atom *pairs* beats describing
+atoms. Five Vina terms helped; a hundred binned contact counts helped more. A
+network given only atoms has to infer pairwise structure from 2,959 examples,
+and on this evidence it does not manage.
 
 That matched the two-tower Bayesian network, which is how the network was found
 to be ignoring the structure: sum-pooling an undifferentiated bag of ligand and
@@ -40,7 +49,11 @@ from sklearn.linear_model import RidgeCV
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
-from caddack.docking.scoring import TERM_NAMES, vina_terms  # noqa: E402
+from caddack.docking.scoring import (  # noqa: E402
+    TERM_NAMES,
+    contact_features,
+    vina_terms,
+)
 from caddack.gnn.geometry import load_ligand, parse_pdb_atoms  # noqa: E402
 from caddack.qsar.descriptors import mol_to_basic_features, smiles_to_mol_clean  # noqa: E402
 from caddack.qsar.split import scaffold_split  # noqa: E402
@@ -50,7 +63,8 @@ FEATURES = ["MolWt", "LogP", "TPSA", "NumHBD", "NumHBA", "NumRotBonds",
             "n_ligand_atoms", "n_pocket_atoms", "pocket_per_ligand_atom"]
 
 
-def vina_features(data_dir: Path, pdb_id: str, cutoff: float = 8.0):
+def structure_features(data_dir: Path, pdb_id: str, cutoff: float = 8.0,
+                       with_contacts: bool = False):
     """Vina's interaction terms for one complex, from the raw pocket file.
 
     Recomputed from disk rather than taken from the cached GeometryRecord: the
@@ -68,12 +82,17 @@ def vina_features(data_dir: Path, pdb_id: str, cutoff: float = 8.0):
     pro_pos = np.array([[a.x, a.y, a.z] for a in protein])
     pro_z = np.array([a.atomic_num for a in protein])
     near = np.sqrt(((pro_pos[:, None, :] - lig_pos[None, :, :]) ** 2).sum(-1)).min(1) <= cutoff
-    terms = vina_terms(list(lig_z) + list(pro_z[near]),
-                       np.vstack([lig_pos, pro_pos[near]]), n_ligand=len(lig_z))
-    return [terms[k] for k in TERM_NAMES] + [terms["vina_inter"]]
+    z = list(lig_z) + list(pro_z[near])
+    xyz = np.vstack([lig_pos, pro_pos[near]])
+    terms = vina_terms(z, xyz, n_ligand=len(lig_z))
+    out = [terms[k] for k in TERM_NAMES] + [terms["vina_inter"]]
+    if with_contacts:
+        out += contact_features(z, xyz, n_ligand=len(lig_z)).tolist()
+    return out
 
 
-def featurize(examples, indices, data_dir=None, with_vina=False):
+def featurize(examples, indices, data_dir=None, with_vina=False,
+              with_contacts=False):
     rows, targets = [], []
     for i in indices:
         ex = examples[i]
@@ -82,7 +101,7 @@ def featurize(examples, indices, data_dir=None, with_vina=False):
             continue
         extra = []
         if with_vina:
-            extra = vina_features(data_dir, ex.pdb_id)
+            extra = structure_features(data_dir, ex.pdb_id, with_contacts=with_contacts)
             if extra is None:
                 continue
         desc = mol_to_basic_features(mol)
@@ -114,6 +133,9 @@ def main(argv=None) -> int:
     ap.add_argument("--vina-terms", action="store_true",
                     help="add Vina's five interaction terms and their weighted "
                          "sum, recomputed from the raw pocket files")
+    ap.add_argument("--contact-features", action="store_true",
+                    help="also add distance-binned contact counts by element-class "
+                         "pair (implies --vina-terms)")
     ap.add_argument("--general", action="store_true",
                     help="use the full general set instead of the refined subset")
     args = ap.parse_args(argv)
@@ -126,13 +148,20 @@ def main(argv=None) -> int:
     frame = pd.DataFrame({"smiles": [e.ligand_smiles for e in examples]})
     train_idx, test_idx = scaffold_split(frame, smiles_col="smiles",
                                          test_size=args.test_size, seed=args.seed)
-    kw = {"data_dir": args.data_dir, "with_vina": args.vina_terms}
+    if args.contact_features:
+        args.vina_terms = True
+    kw = {"data_dir": args.data_dir, "with_vina": args.vina_terms,
+          "with_contacts": args.contact_features}
     X_train, y_train = featurize(examples, train_idx, **kw)
     X_test, y_test = featurize(examples, test_idx, **kw)
     print(f"  {len(examples)} complexes, scaffold split: "
           f"train {len(y_train)}  test {len(y_test)}")
     names = FEATURES + ([*TERM_NAMES, "vina_inter"] if args.vina_terms else [])
-    print(f"  features ({len(names)}): {', '.join(names)}\n")
+    if args.contact_features:
+        from caddack.docking.scoring import contact_feature_names
+        names = names + contact_feature_names()
+    print(f"  features: {len(names)}"
+          f"{'' if len(names) > 30 else ' -- ' + ', '.join(names)}\n")
 
     results = {}
     models = [

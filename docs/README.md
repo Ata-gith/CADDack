@@ -118,6 +118,28 @@ next thing to try.
 Per-prediction discrimination is still poor (ρ = 0.10, and the quintile trend is
 not monotonic). One split, so read it as indicative.
 
+### Interaction features: the one change that clearly worked
+
+Vina's five terms describe atom *pairs* across the interface. Splitting those
+pairs out by element class and distance shell -- 100 counts, five classes squared
+by four shells, normalised per ligand atom -- keeps information the five terms
+average away. On a random forest, over three split seeds:
+
+| features | r | R² | MAE |
+|---|---|---|---|
+| 9 descriptors | 0.589 | 0.343 | 1.211 |
+| + 6 Vina terms | 0.636 | 0.400 | 1.156 |
+| **+ 100 contact counts** | **0.696** | **0.478** | **1.067** |
+
+Every seed improved, by a consistent margin, and this is the largest effect
+measured anywhere in this work. It also puts a random forest on 115 scalars well
+ahead of the two-tower Bayesian network, which reaches r 0.644 and MAE 1.268 on
+the same split.
+
+The consistent pattern: **describing atom pairs beats describing atoms**. The
+learned encoders are given atoms and have to infer pairwise structure from 2,959
+examples. Handing it to them directly works; expecting them to find it does not.
+
 ### Which warning signal is actually worth listening to
 
 Comparing every available signal against the errors the model made, by rank
