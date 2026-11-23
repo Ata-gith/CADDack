@@ -188,12 +188,24 @@ understate what the ranking supports. Fitting a linear rescale on half the test
 set and scoring the other half, over 200 repeats, gives MAE 1.137 ± 0.030 and
 R² 0.416 ± 0.029.
 
-Two caveats. That recalibration is a diagnostic, not a shipped result: doing it
-properly means fitting on a validation slice carved out of training, not on test
-data. And this is one seed against a spread of ±0.038 in r, so the margins over
-the bar — +0.012 in r, −0.017 in MAE — are inside the noise. The fair statement
-is that the network has drawn level with five hand-coded physics terms on a
-random forest, not that it has beaten them.
+**Confirmed over three seeds**, which is what the single-seed result needed:
+
+| | r | MAE | R² |
+|---|---|---|---|
+| towers alone, 5 seeds | 0.602 ± 0.038 | 1.238 ± 0.086 | 0.306 ± 0.083 |
+| **towers + Vina, 3 seeds** | **0.644 ± 0.013** | 1.268 ± 0.091 | 0.289 ± 0.087 |
+| RF + Vina terms — the bar | 0.636 | **1.154** | **0.403** |
+
+The ranking gain is real: +0.042 in r over the towers alone, 2.3 standard errors,
+with all three seeds above the towers-alone mean. It is also the only change in
+this investigation that survived replication.
+
+But **accuracy did not follow**. MAE and R² are unchanged within noise, and both
+remain clearly behind the random forest — 1.268 against 1.154. Against the bar
+the network is level on ranking (+0.008 in r, inside noise) and worse on
+accuracy. A random forest on fifteen scalars still matches or beats a two-tower
+Bayesian network with full 3D geometry, so the network is not yet earning its
+complexity.
 
 **That reading of the shrinkage was too strong, and testing it properly corrected
 it.** The least-squares rescale is `slope = r * sd(y)/sd(pred)`, so with imperfect
