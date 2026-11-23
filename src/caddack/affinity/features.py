@@ -30,7 +30,14 @@ from caddack.docking.scoring import (
 )
 
 DESCRIPTOR_NAMES = ("MolWt", "LogP", "TPSA", "NumHBD", "NumHBA", "NumRotBonds")
-SIZE_NAMES = ("n_ligand_atoms", "n_pocket_atoms", "pocket_per_ligand_atom")
+# Only the ligand's size. Pocket atom count and the pocket/ligand ratio were in
+# this set and came out as the second most important feature of 115, but they
+# were both redundant -- removing them moved r by +0.003 and MAE by -0.005 over
+# three splits -- and contaminated: PDBbind structures carry hydrogens
+# inconsistently, which inflated the pocket count by about 24% at random. A
+# feature the model leans on should not depend on what the depositor chose to
+# model.
+SIZE_NAMES = ("n_ligand_atoms",)
 # 8 A, matching Vina's own interaction cutoff and the outermost contact shell.
 DEFAULT_CUTOFF = 8.0
 
@@ -60,16 +67,35 @@ def features_from_atoms(
     if mol is None:
         return None
 
+    # The interaction features reach 8 A. A pocket trimmed closer than that
+    # silently empties the outer shells, and the model was trained on full ones:
+    # passing the 6 A cached geometry roughly halves the 6-8 A contact counts.
+    # Warn rather than fail, since a genuinely small pocket is also possible.
+    pos_arr = np.asarray(positions, dtype=float)
+    if n_ligand < len(pos_arr):
+        reach = np.linalg.norm(
+            pos_arr[n_ligand:][:, None, :] - pos_arr[:n_ligand][None, :, :],
+            axis=-1).min(axis=1).max()
+        if reach < DEFAULT_CUTOFF - 0.5:
+            import warnings
+
+            warnings.warn(
+                f"pocket reaches only {reach:.1f} A from the ligand but the "
+                f"interaction features extend to {DEFAULT_CUTOFF:.0f} A; the outer "
+                "contact shells will be empty and the prediction will not match "
+                "how the model was trained",
+                RuntimeWarning, stacklevel=2,
+            )
+
     desc = mol_to_basic_features(mol)
     n_lig_heavy = mol.GetNumAtoms()
-    n_pocket = len(atomic_nums) - n_ligand
 
     terms = vina_terms(atomic_nums, positions, n_ligand=n_ligand)
     contacts = contact_features(atomic_nums, positions, n_ligand=n_ligand)
 
     return np.concatenate([
         [desc[k] for k in DESCRIPTOR_NAMES],
-        [n_lig_heavy, n_pocket, n_pocket / max(n_lig_heavy, 1)],
+        [n_lig_heavy],
         [terms[k] for k in TERM_NAMES],
         [terms["vina_inter"]],
         contacts,

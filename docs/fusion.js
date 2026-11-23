@@ -103,7 +103,7 @@ function drawHeadToHead() {
   const n = stats(shared.map((id) => byId[id].network));
 
   const rows = [
-    ["Random forest, 115 features", f, true],
+    [`Random forest, ${F.feature_names.length} features`, f, true],
     ["Two-tower network", n, false],
   ];
   const best = Math.max(f.r, n.r);
@@ -187,6 +187,16 @@ function showStructure(s) {
 // --- summary table -----------------------------------------------------------
 
 function fillSummary() {
+  // The repeated-split summary describes the full 300-tree forest. The bundle
+  // ships a 100-tree copy so the page is not a 20 MB download, and the plot above
+  // is that copy's predictions, so both figures are shown rather than quoting the
+  // larger model's numbers over the smaller model's plot.
+  const d = F.demo_metrics;
+  if (d) {
+    $("mDemoR").textContent = `${d.pearson >= 0 ? "+" : ""}${d.pearson.toFixed(3)}`;
+    $("mDemoMae").textContent = d.mae.toFixed(3);
+    $("mDemoTrees").textContent = d.n_trees;
+  }
   const m = F.metrics;
   const fmt = (k) => `${m[k].mean >= 0 && k !== "mae" && k !== "rmse" ? "+" : ""}${m[k].mean.toFixed(3)} ± ${m[k].sd.toFixed(3)}`;
   $("mR").textContent = fmt("pearson");

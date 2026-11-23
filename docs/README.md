@@ -133,7 +133,7 @@ average away. On a random forest, over three split seeds:
 | **+ 100 contact counts** | **0.696** | **0.478** | **1.067** |
 
 Every seed improved, by a consistent margin, and this is the largest effect
-measured anywhere in this work. It also puts a random forest on 115 scalars well
+measured anywhere in this work. It also puts a random forest on 113 scalars well
 ahead of the two-tower Bayesian network, which reaches r 0.644 and MAE 1.268 on
 the same split.
 

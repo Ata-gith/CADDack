@@ -87,7 +87,7 @@ splits, mean ± sd:
 
 | Model | MAE | R² | Pearson *r* |
 |---|---|---|---|
-| **random forest, 115 interaction features** | **1.069 ± 0.002** | **0.476 ± 0.015** | **0.693 ± 0.011** |
+| **random forest, 113 interaction features** | **1.069 ± 0.002** | **0.476 ± 0.015** | **0.693 ± 0.011** |
 | Bayesian two-tower network, same features | 1.150 | 0.387 | 0.626 |
 | Bayesian two-tower network, towers only | 1.238 ± 0.086 | 0.306 ± 0.083 | 0.602 ± 0.038 |
 | *predict the mean* | 1.587 | 0.00 | — |

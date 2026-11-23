@@ -16,7 +16,7 @@ def test_feature_names_match_the_declared_dimension():
     from caddack.affinity import FEATURE_DIM, feature_names
 
     names = feature_names()
-    assert len(names) == FEATURE_DIM == 115
+    assert len(names) == FEATURE_DIM == 113
     assert len(set(names)) == len(names), "duplicate feature name"
 
 
@@ -26,11 +26,10 @@ def test_feature_order_is_descriptors_then_size_then_physics():
 
     names = feature_names()
     assert names[:6] == ["MolWt", "LogP", "TPSA", "NumHBD", "NumHBA", "NumRotBonds"]
-    assert names[6:9] == ["n_ligand_atoms", "n_pocket_atoms", "pocket_per_ligand_atom"]
-    assert names[9:14] == ["gauss1", "gauss2", "repulsion", "hydrophobic", "hbond"]
-    assert names[14] == "vina_inter"
-    assert names[15].startswith("contact_")
-    assert all(n.startswith("contact_") for n in names[15:])
+    assert names[6] == "n_ligand_atoms"
+    assert names[7:12] == ["gauss1", "gauss2", "repulsion", "hydrophobic", "hbond"]
+    assert names[12] == "vina_inter"
+    assert all(n.startswith("contact_") for n in names[13:])
 
 
 @pytest.mark.skipif(not rdkit_available, reason="rdkit required")
@@ -58,17 +57,28 @@ def test_unparseable_smiles_returns_none_rather_than_a_partial_vector():
 
 
 @pytest.mark.skipif(not rdkit_available, reason="rdkit required")
-def test_size_features_describe_the_actual_split():
-    from caddack.affinity import feature_names, features_from_atoms
+def test_pocket_size_is_not_a_feature():
+    """It was, and came out second most important of 115 while being redundant and
+    contaminated: PDBbind deposits hydrogens inconsistently, which inflated the
+    count by about 24% at random. Removing it moved r by +0.003."""
+    from caddack.affinity import feature_names
 
     names = feature_names()
-    z = [6, 6, 8] + [6] * 10
-    pos = [(0.0, 0.0, 0.0), (1.5, 0.0, 0.0), (2.2, 1.2, 0.0)]
-    pos += [(x, 4.0, 0.0) for x in range(10)]
-    x = features_from_atoms(z, pos, n_ligand=3, smiles="CCO")
-    assert x[names.index("n_ligand_atoms")] == 3
-    assert x[names.index("n_pocket_atoms")] == 10
-    assert x[names.index("pocket_per_ligand_atom")] == pytest.approx(10 / 3)
+    assert "n_pocket_atoms" not in names
+    assert "pocket_per_ligand_atom" not in names
+    assert "n_ligand_atoms" in names
+
+
+def test_a_pocket_shorter_than_the_feature_radius_warns():
+    """The interaction features reach 8 A. A 6 A pocket empties the outer shells
+    and silently mismatches how the model was trained."""
+    from caddack.affinity import features_from_atoms
+
+    z = [6, 6, 8] + [6] * 6
+    close = [(0.0, 0.0, 0.0), (1.5, 0.0, 0.0), (2.2, 1.2, 0.0)]
+    close += [(float(x), 4.0, 0.0) for x in range(6)]        # all within ~4 A
+    with pytest.warns(RuntimeWarning, match="pocket reaches only"):
+        features_from_atoms(z, close, n_ligand=3, smiles="CCO")
 
 
 @pytest.mark.skipif(not rdkit_available, reason="rdkit required")

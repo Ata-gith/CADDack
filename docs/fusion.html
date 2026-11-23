@@ -118,7 +118,7 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
 <header>
   <h1>Can it tell when it's wrong?</h1>
-  <p class="sub">A random forest on 115 interaction features predicts how tightly a
+  <p class="sub">A random forest on interaction features predicts how tightly a
   molecule binds a protein pocket. A two-tower Bayesian graph network was built first and
   is shown alongside it: both were scored on the same 740 held-out complexes, and the
   forest wins.</p>
@@ -155,7 +155,7 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
   <section class="panel">
     <h2>The model</h2>
-    <p class="body">115 numbers describe each complex, and a random forest of 300
+    <p class="body">113 numbers describe each complex, and a random forest of 300
     decision trees maps them to an affinity. Nothing about the molecule is learned from
     raw structure: every input is computed directly from the coordinates.</p>
 
@@ -167,8 +167,8 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
         <text class="s" x="102" y="60">weight, lipophilicity, polarity</text>
 
         <rect class="box in" x="204" y="18" width="150" height="58" rx="8"/>
-        <text class="t" x="279" y="40">3 size counts</text>
-        <text class="s" x="279" y="60">ligand and pocket atoms</text>
+        <text class="t" x="279" y="40">1 size count</text>
+        <text class="s" x="279" y="60">ligand heavy atoms</text>
 
         <rect class="box in" x="372" y="18" width="168" height="58" rx="8"/>
         <text class="t" x="456" y="40">6 Vina terms</text>
@@ -179,7 +179,7 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
         <text class="s" x="650" y="60">by element pair and distance</text>
 
         <rect class="box vec" x="240" y="118" width="280" height="36" rx="6"/>
-        <text class="t" x="380" y="141">one vector of 115 numbers</text>
+        <text class="t" x="380" y="141">one vector of 113 numbers</text>
 
         <rect class="box head" x="200" y="186" width="360" height="54" rx="8"/>
         <text class="t" x="380" y="208">300 decision trees, averaged</text>
@@ -367,6 +367,11 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
       <span>R² <b id="mR2"></b></span>
       <span>mean-predictor MAE <b id="mBaseline"></b></span>
     </div>
+    <p class="body" style="margin-top:14px">The plot above comes from a smaller copy
+    of the same forest — <b id="mDemoTrees">—</b> trees rather than 300 — so the page
+    is a 1.9 MB download instead of 20 MB. On this split it scores
+    <i>r</i> <b id="mDemoR">—</b> and MAE <b id="mDemoMae">—</b>, within a hundredth
+    of the full model.</p>
     <div class="statline">
       <span><b id="mDataset"></b></span>
       <span>test complexes <b id="mTest"></b></span>
