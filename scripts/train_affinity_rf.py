@@ -54,10 +54,18 @@ def build_matrix(examples, cache: Path | None, data_dir: Path, from_raw: bool):
     """
     if cache is not None and cache.exists():
         blob = np.load(cache, allow_pickle=True)
-        print(f"  features: loaded {blob['X'].shape} from {cache.name}")
-        return blob["X"], blob["y"], list(blob["ids"]), list(blob["smiles"])
+        if "mask" not in blob:          # written before the split fix
+            cache.unlink()
+        else:
+            print(f"  features: loaded {blob['X'].shape} from {cache.name}")
+            return (blob["X"], blob["y"], list(blob["ids"]),
+                    list(blob["smiles"]), blob["mask"])
 
-    rows, targets, ids, smiles = [], [], [], []
+    # A validity mask over the FULL example list, not a filtered copy. The split
+    # has to be computed on the same list the graph model splits, or the two are
+    # scored on different molecules and cannot be compared -- which is exactly
+    # what happened: their test sets overlapped on only 458 of 740.
+    rows, targets, ids, smiles, valid = [], [], [], [], []
     t0 = time.perf_counter()
     for i, ex in enumerate(examples):
         if from_raw:
@@ -71,6 +79,7 @@ def build_matrix(examples, cache: Path | None, data_dir: Path, from_raw: bool):
         else:
             x = features_from_atoms(ex.geo.atomic_nums, ex.geo.positions,
                                     n_ligand=ex.geo.n_ligand, smiles=ex.ligand_smiles)
+        valid.append(x is not None)
         if x is None:
             continue
         rows.append(x)
@@ -83,21 +92,32 @@ def build_matrix(examples, cache: Path | None, data_dir: Path, from_raw: bool):
 
     X = np.asarray(rows)
     y = np.asarray(targets)
-    print(f"  features: {X.shape} in {time.perf_counter() - t0:.0f}s")
+    mask = np.asarray(valid, dtype=bool)
+    print(f"  features: {X.shape} in {time.perf_counter() - t0:.0f}s"
+          f"{'' if mask.all() else f' ({(~mask).sum()} complexes unreadable)'}")
     if cache is not None:
         np.savez_compressed(cache, X=X, y=y, ids=np.array(ids),
-                            smiles=np.array(smiles, dtype=object))
-    return X, y, ids, smiles
+                            smiles=np.array(smiles, dtype=object), mask=mask)
+    return X, y, ids, smiles, mask
 
 
-def evaluate(X, y, smiles, args) -> tuple[dict, dict]:
-    """Repeated scaffold splits. Returns summary stats and the last fold's detail."""
+def evaluate(X, y, smiles, all_smiles, mask, args) -> tuple[dict, dict]:
+    """Repeated scaffold splits. Returns summary stats and the last fold's detail.
+
+    The split runs over every complex in the dataset, then is restricted to the
+    ones that featurised. Splitting a pre-filtered list instead would put these
+    models on a different test set from the graph models, which are split the
+    same way.
+    """
+    position = np.cumsum(mask) - 1          # dataset index -> row in X
     per_fold, detail = [], {}
     for rep in range(args.n_repeats):
         seed = args.seed + rep
-        frame = pd.DataFrame({"smiles": smiles})
-        tr, te = scaffold_split(frame, smiles_col="smiles",
-                                test_size=args.test_size, seed=seed)
+        frame = pd.DataFrame({"smiles": all_smiles})
+        tr_all, te_all = scaffold_split(frame, smiles_col="smiles",
+                                        test_size=args.test_size, seed=seed)
+        tr = position[[i for i in tr_all if mask[i]]]
+        te = position[[i for i in te_all if mask[i]]]
         rf = RandomForestRegressor(n_estimators=args.n_estimators,
                                    max_depth=args.max_depth,
                                    min_samples_leaf=args.min_samples_leaf,
@@ -115,7 +135,12 @@ def evaluate(X, y, smiles, args) -> tuple[dict, dict]:
         per_fold.append(fold)
         print(f"    split {seed}: r {fold['pearson']:+.3f}  R2 {fold['r2']:+.3f}  "
               f"MAE {fold['mae']:.3f}")
-        detail = {"train_idx": tr, "test_idx": te, "pred": pred, "model": rf}
+        if rep == 0:
+            # The exported fold is the base seed's, so the page shows the same
+            # held-out molecules the graph model's bundle does. Keeping the last
+            # repeat instead put the two bundles on different splits, overlapping
+            # on 458 of 740 complexes, and made the comparison meaningless.
+            detail = {"train_idx": tr, "test_idx": te, "pred": pred, "model": rf}
 
     summary = {k: {"mean": float(np.mean([f[k] for f in per_fold])),
                    "sd": float(np.std([f[k] for f in per_fold], ddof=1))
@@ -184,10 +209,11 @@ def main(argv=None) -> int:
 
     tag = ("general" if args.general else "refined") + ("_raw" if args.from_raw else "")
     cache = None if args.no_cache else args.data_dir / f"affinity_features_{tag}.npz"
-    X, y, ids, smiles = build_matrix(examples, cache, args.data_dir, args.from_raw)
+    X, y, ids, smiles, mask = build_matrix(examples, cache, args.data_dir, args.from_raw)
+    all_smiles = [e.ligand_smiles or "" for e in examples]
 
     print(f"  evaluating over {args.n_repeats} scaffold splits")
-    summary, detail = evaluate(X, y, smiles, args)
+    summary, detail = evaluate(X, y, smiles, all_smiles, mask, args)
     print("  summary: " + "  ".join(
         f"{k} {v['mean']:+.3f}±{v['sd']:.3f}" for k, v in summary.items()
         if isinstance(v, dict)))

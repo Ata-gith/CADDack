@@ -56,6 +56,19 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
 .chips button{padding:7px 13px;font-size:.86rem;border-radius:20px}
+.h2h{margin-top:14px}
+.h2hhead,.h2hrow{display:grid;grid-template-columns:minmax(0,15rem) 1fr 4.5rem 4.5rem 4.5rem;
+  gap:10px;align-items:center;padding:7px 0;font-size:.9rem}
+.h2hhead{font-size:.76rem;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.06em;border-bottom:1px solid var(--line)}
+.h2hrow+.h2hrow{border-top:1px solid var(--line)}
+.h2hrow.lead .h2hname{font-weight:650}
+.h2hname{color:var(--ink)}
+.h2hbar{height:9px;background:var(--line);border-radius:99px;overflow:hidden}
+.h2hbar i{display:block;height:100%;border-radius:99px;background:color-mix(in srgb,var(--muted) 45%,transparent)}
+.h2hrow.lead .h2hbar i{background:var(--accent)}
+.h2hval{text-align:right;font-variant-numeric:tabular-nums}
+.h2hhead .h2hval{text-align:right}
 .sigrow{display:grid;grid-template-columns:minmax(0,15rem) 1fr 4rem;gap:12px;
   align-items:center;padding:6px 0;font-size:.88rem}
 @media(max-width:640px){.sigrow{grid-template-columns:1fr 3.5rem}
@@ -105,10 +118,10 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
 <header>
   <h1>Can it tell when it's wrong?</h1>
-  <p class="sub">A Bayesian network predicts binding affinity from the ligand's 2D graph
-  and the 3D geometry of the binding site, and reports an uncertainty with every
-  prediction. This page checks that uncertainty against the errors the model actually
-  made.</p>
+  <p class="sub">A random forest on 115 interaction features predicts how tightly a
+  molecule binds a protein pocket. A two-tower Bayesian graph network was built first and
+  is shown alongside it: both were scored on the same 740 held-out complexes, and the
+  forest wins.</p>
 </header>
 
 <p class="loading" id="loading">Loading predictions…</p>
@@ -142,89 +155,77 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
   <section class="panel">
     <h2>The model</h2>
-    <p class="body">Two encoders read the same complex in different ways, and their outputs
-    are concatenated and fed to a probabilistic head.</p>
+    <p class="body">115 numbers describe each complex, and a random forest of 300
+    decision trees maps them to an affinity. Nothing about the molecule is learned from
+    raw structure: every input is computed directly from the coordinates.</p>
 
     <div class="schematic">
-      <svg viewBox="0 0 760 330" role="img"
-           aria-label="Two encoders feed a Bayesian head that outputs a mean and a variance">
-        <!-- inputs -->
-        <rect class="box in" x="20" y="18" width="200" height="56" rx="8"/>
-        <text class="t" x="120" y="40">ligand, 2D graph</text>
-        <text class="s" x="120" y="60">atoms and bonds, no coordinates</text>
+      <svg viewBox="0 0 760 290" role="img"
+           aria-label="Features computed from the complex feed a random forest">
+        <rect class="box in" x="18" y="18" width="168" height="58" rx="8"/>
+        <text class="t" x="102" y="40">6 descriptors</text>
+        <text class="s" x="102" y="60">weight, lipophilicity, polarity</text>
 
-        <rect class="box in" x="300" y="18" width="230" height="56" rx="8"/>
-        <text class="t" x="415" y="40">complex, 3D coordinates</text>
-        <text class="s" x="415" y="60">ligand + pocket, ~167 atoms</text>
+        <rect class="box in" x="204" y="18" width="150" height="58" rx="8"/>
+        <text class="t" x="279" y="40">3 size counts</text>
+        <text class="s" x="279" y="60">ligand and pocket atoms</text>
 
-        <rect class="box in" x="590" y="18" width="150" height="56" rx="8"/>
-        <text class="t" x="665" y="40">Vina terms</text>
-        <text class="s" x="665" y="60">6 physics scalars</text>
+        <rect class="box in" x="372" y="18" width="168" height="58" rx="8"/>
+        <text class="t" x="456" y="40">6 Vina terms</text>
+        <text class="s" x="456" y="60">empirical contact energies</text>
 
-        <!-- encoders -->
-        <rect class="box enc" x="20" y="108" width="200" height="62" rx="8"/>
-        <text class="t" x="120" y="132">message passing ×3</text>
-        <text class="s" x="120" y="152">learns from bond topology</text>
+        <rect class="box enc" x="558" y="18" width="184" height="58" rx="8"/>
+        <text class="t" x="650" y="40">100 contact counts</text>
+        <text class="s" x="650" y="60">by element pair and distance</text>
 
-        <rect class="box enc" x="300" y="108" width="230" height="62" rx="8"/>
-        <text class="t" x="415" y="132">distance convolutions ×2</text>
-        <text class="s" x="415" y="152">learns from interatomic distances</text>
+        <rect class="box vec" x="240" y="118" width="280" height="36" rx="6"/>
+        <text class="t" x="380" y="141">one vector of 115 numbers</text>
 
-        <!-- vectors -->
-        <rect class="box vec" x="55" y="200" width="130" height="34" rx="6"/>
-        <text class="t" x="120" y="222">128 numbers</text>
-        <rect class="box vec" x="350" y="200" width="130" height="34" rx="6"/>
-        <text class="t" x="415" y="222">128 numbers</text>
-        <rect class="box vec" x="600" y="200" width="130" height="34" rx="6"/>
-        <text class="t" x="665" y="222">6 numbers</text>
+        <rect class="box head" x="200" y="186" width="360" height="54" rx="8"/>
+        <text class="t" x="380" y="208">300 decision trees, averaged</text>
+        <text class="s" x="380" y="227">each trained on a resample of the data</text>
 
-        <!-- head -->
-        <rect class="box head" x="190" y="262" width="380" height="52" rx="8"/>
-        <text class="t" x="380" y="284">probabilistic head</text>
-        <text class="s" x="380" y="303">weights are distributions, not fixed values</text>
-
-        <!-- arrows -->
         <g class="arrow">
-          <path d="M120 74 V108"/><path d="M415 74 V108"/>
-          <path d="M120 170 V200"/><path d="M415 170 V200"/><path d="M665 74 V200"/>
-          <path d="M120 234 V248 H380 V262"/>
-          <path d="M415 234 V262"/>
-          <path d="M665 234 V248 H380 V262"/>
+          <path d="M102 76 V100 H380 V118"/><path d="M279 76 V100 H380 V118"/>
+          <path d="M456 76 V100 H380 V118"/><path d="M650 76 V100 H380 V118"/>
+          <path d="M380 154 V186"/>
         </g>
-        <text class="out" x="380" y="328">→ predicted pK, and a spread</text>
+        <text class="out" x="380" y="256">→ predicted pK, and the spread across trees</text>
       </svg>
     </div>
 
     <dl class="defs">
-      <dt>Message passing</dt>
-      <dd>Each atom starts as a vector of its own properties. Repeatedly, every atom's
-      vector is updated with a learned function of its bonded neighbours' vectors. After
-      three rounds each atom's vector reflects its local substructure. Summing them gives
-      one vector for the molecule.</dd>
-
-      <dt>Distance convolutions</dt>
-      <dd>The same idea on coordinates instead of bonds. Atoms within 6 Å are treated as
-      connected, and each message is weighted by a smooth function of the distance between
-      them. Only distances are used, never raw positions, so the output is unchanged if the
-      whole complex is rotated or translated.</dd>
+      <dt>Why contact counts carry the most</dt>
+      <dd>The four input groups were added in that order, and each addition was measured.
+      Descriptors alone reach <i>r</i> 0.589. The Vina terms lift it to 0.636. The hundred
+      contact counts lift it to 0.696. What the last two have in common is that they
+      describe <em>pairs</em> of atoms facing each other across the interface, which is
+      what binding physically is.</dd>
 
       <dt>Vina terms</dt>
       <dd>Six scalars from AutoDock Vina's empirical scoring function: four shaped
       functions of how far each ligand–protein atom pair sits from van der Waals contact,
-      a hydrophobic-contact count, and a hydrogen-bond count. Hand-derived physics rather
-      than anything learned.</dd>
+      plus a hydrophobic-contact count and a hydrogen-bond count.</dd>
 
-      <dt>Probabilistic head</dt>
-      <dd>An ordinary neural network has one fixed number per weight. Here each weight is a
-      Gaussian distribution, and a prediction is made by drawing a sample from each. Thirty
-      draws give thirty slightly different answers.</dd>
+      <dt>Contact counts</dt>
+      <dd>Every ligand–protein atom pair is sorted into a bin by what the two elements are
+      (carbon, nitrogen, oxygen, sulfur-and-halogens, everything else) and how far apart
+      they sit (under 3.5 Å, then out to 4.5, 6 and 8 Å). Five classes squared by four
+      shells gives a hundred counts, divided by the ligand's atom count so the features
+      describe contact density rather than molecular size.</dd>
+
+      <dt>Random forest</dt>
+      <dd>Three hundred decision trees, each fitted to a different resample of the
+      training complexes and a random subset of features at every split. The prediction is
+      their average; how much they disagree is reported alongside it.</dd>
     </dl>
   </section>
 
   <section class="panel">
     <h2>Two kinds of uncertainty</h2>
-    <p class="body">The head reports a spread as well as a value, and that spread is split
-    into two parts with different meanings.</p>
+    <p class="body">The forest reports how much its trees disagree. The graph network goes
+    further and splits its uncertainty in two, which is worth defining because the
+    comparison below turns on it.</p>
 
     <dl class="defs">
       <dt><strong>Epistemic</strong> — the model's own doubt</dt>
@@ -308,65 +309,73 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
         <div class="big"><span id="selId"></span></div>
         <dl class="kv">
-          <dt>predicted</dt><dd><span id="selPred"></span> pK</dd>
           <dt>measured</dt><dd><span id="selMeasured"></span> pK</dd>
-          <dt>error</dt><dd><span id="selError"></span> pK</dd>
-          <dt>epistemic σ</dt><dd><span id="selEpi"></span> — model uncertainty</dd>
-          <dt>aleatoric σ</dt><dd><span id="selAle"></span> — noise it can't reduce</dd>
-          <dt>atoms</dt><dd id="selAtoms"></dd>
+          <dt>forest</dt><dd><span id="selForest"></span> pK · off by <span id="selForestErr"></span></dd>
+        </dl>
+        <dl class="kv" id="selNetworkRow">
+          <dt>network</dt><dd><span id="selNetwork"></span> pK · off by <span id="selNetworkErr"></span></dd>
+        </dl>
+        <dl class="kv">
+          <dt>tree spread</dt><dd><span id="selSpread"></span> pK</dd>
         </dl>
         <p class="verdict" id="selVerdict"></p>
 
         <div class="chips">
-          <button id="best">Its best call</button>
-          <button id="worst">Its worst miss</button>
-          <button id="confidentMiss">Confidently wrong</button>
+          <button id="best">Closest call</button>
+          <button id="worst">Worst miss</button>
+          <button id="disagree">Models disagree most</button>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="panel">
-    <h2>Do the error bars flag the bad predictions?</h2>
-    <p class="sub" style="margin-bottom:14px">The test set in five groups, ordered by how
-    uncertain the model said it was. If the uncertainty means anything, the red bars climb
-    left to right.</p>
-    <div id="reliability"></div>
-    <div class="legend">
-      <span><i class="err"></i>mean absolute error</span>
-      <span><i class="unc"></i>uncertainty the model claimed</span>
+  <section class="panel">
+    <h2>Network prediction</h2>
+    <p class="body">The two-tower Bayesian graph network was built before the forest and
+    is still in the package. It reads the ligand's bond graph and the complex's 3D
+    coordinates through learned encoders rather than hand-built features. Scored on the
+    same <b id="h2hCount">—</b> held-out complexes:</p>
+
+    <div class="h2h">
+      <div class="h2hhead">
+        <span class="h2hname">model</span><span></span>
+        <span class="h2hval">r</span><span class="h2hval">MAE</span><span class="h2hval">R²</span>
+      </div>
+      <div id="headToHead"></div>
     </div>
-    <p class="sub" id="reliabilityVerdict" style="margin-top:14px"></p>
-  </div>
+    <p class="body" id="h2hVerdict" style="margin-top:16px"></p>
+  </section>
 
-  <div class="panel" id="signalsPanel">
-    <h2>Which signal predicts the errors best?</h2>
-    <p class="sub" style="margin-bottom:16px">Rank correlation between each signal and the
-    error it was computed against, over every held-out complex. Higher is better; red
-    points the wrong way.</p>
+  <section class="panel" id="uncertaintyPanel">
+    <h2>Does the network know when it is wrong?</h2>
+    <p class="body">Only the network produces the epistemic and aleatoric split defined
+    above, so this question is about it rather than the forest. Each signal is ranked
+    against the error it was computed alongside, over every held-out complex. Higher is
+    better; red points the wrong way.</p>
     <div id="signals"></div>
-    <p class="sub" id="signalsVerdict" style="margin-top:16px"></p>
-  </div>
+    <p class="body" id="uncertaintyVerdict" style="margin-top:16px"></p>
+  </section>
 
-  <div class="panel">
+  <section class="panel">
     <h2>Results on the held-out set</h2>
+    <p class="body">The forest, over <b id="mRepeats">—</b> scaffold splits, reported as
+    mean ± standard deviation. Single-split differences on this data are routinely smaller
+    than the spread between splits, so one number on its own means little.</p>
     <div class="statline">
+      <span>Pearson <i>r</i> <b id="mR"></b></span>
       <span>MAE <b id="mMae"></b> pK</span>
       <span>R² <b id="mR2"></b></span>
-      <span>Pearson <i>r</i> <b id="mR"></b></span>
-      <span>1σ coverage <b id="mCov1"></b></span>
-      <span>2σ coverage <b id="mCov2"></b></span>
       <span>mean-predictor MAE <b id="mBaseline"></b></span>
     </div>
     <div class="statline">
-      <span>train <b id="mTrain"></b></span>
-      <span>test <b id="mTest"></b></span>
-      <span>scaffold groups <b id="mGroups"></b></span>
-      <span>structures shipped <b id="mStructs"></b></span>
+      <span><b id="mDataset"></b></span>
+      <span>test complexes <b id="mTest"></b></span>
+      <span>features <b id="mFeatures"></b></span>
+      <span>structures shown <b id="mStructs"></b></span>
     </div>
-  </div>
+  </section>
 
-  <section class="panel">
+<section class="panel">
     <h2>What would improve this</h2>
     <p class="body">A random forest on fifteen scalar descriptors — molecular weight,
     lipophilicity, atom counts, and the six Vina terms — reaches <i>r</i> 0.636 and MAE

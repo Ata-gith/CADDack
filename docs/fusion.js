@@ -1,26 +1,27 @@
 /* ---------------------------------------------------------------------------
-   Fusion-model explorer.
+   Affinity page.
 
-   Unlike the solubility page, this one does not run the model. FusionAffinityNet
-   needs a protein-ligand complex with 3D coordinates, which a visitor cannot type
-   in, and its Bayesian head needs Monte Carlo sampling over weight posteriors.
-   So docs/fusion.json carries predictions computed offline by
-   scripts/build_fusion_demo.py, and the page is an explorer over them.
+   Two bundles are loaded. docs/affinity.json holds the random forest that ships
+   as the affinity model, and leads the page. docs/fusion.json holds the
+   two-tower Bayesian graph network that came first, together with the 3D
+   coordinates shown in the viewer and the uncertainty decomposition only it
+   produces.
 
-   What that still buys: you can check whether the uncertainty the model reports
-   actually tracks the errors it makes. That is the claim worth testing, and a
-   static table cannot show it.
+   Both were evaluated on the same scaffold split and the same 740 held-out
+   complexes, so predictions can be compared complex by complex.
+
+   Neither model runs in the browser. The forest could -- it is a tree ensemble,
+   like the one on the similarity page -- but the predictions shown here are the
+   held-out ones, which is the honest thing to display.
    --------------------------------------------------------------------------- */
 
-const DATA_URL = "fusion.json";
-
-let D = null;          // the loaded bundle
-let viewer = null;     // 3Dmol viewer, created once
-let selected = null;
+let F = null;          // forest bundle
+let N = null;          // network bundle
+let byId = {};         // pdb id -> { forest, network }
+let viewer = null;
 
 const $ = (id) => document.getElementById(id);
-const err = (r) => Math.abs(r.pred - r.measured);
-const totalSd = (r) => Math.hypot(r.epi, r.ale);
+const absErr = (p, m) => Math.abs(p - m);
 
 // --- parity plot -------------------------------------------------------------
 
@@ -32,11 +33,10 @@ function plotXY(v, axis) {
   return axis === "x" ? pad + t * (w - 2 * pad) : h - pad - t * (h - 2 * pad);
 }
 
-/** Predicted against measured, with uncertainty as the visual channel. */
 function drawParity() {
   const { w, h, pad, lo, hi } = PLOT;
   const ticks = [2, 4, 6, 8, 10, 12];
-  const withStructure = new Set(Object.keys(D.structures));
+  const withStructure = new Set(Object.keys(N.structures));
 
   const grid = ticks.map((t) => `
     <line x1="${plotXY(t, "x")}" y1="${pad}" x2="${plotXY(t, "x")}" y2="${h - pad}" class="grid"/>
@@ -44,18 +44,15 @@ function drawParity() {
     <text x="${plotXY(t, "x")}" y="${h - pad + 16}" class="tick" text-anchor="middle">${t}</text>
     <text x="${pad - 8}" y="${plotXY(t, "y") + 4}" class="tick" text-anchor="end">${t}</text>`).join("");
 
-  // Points are sorted so the interesting ones (shippable structures) draw last.
-  const pts = [...D.complexes]
+  const pts = F.complexes
+    .slice()
     .sort((a, b) => withStructure.has(a.id) - withStructure.has(b.id))
-    .map((r) => {
-      const sd = totalSd(r);
-      const hasStruct = withStructure.has(r.id);
-      return `<circle cx="${plotXY(r.measured, "x").toFixed(1)}"
-                      cy="${plotXY(r.pred, "y").toFixed(1)}"
-                      r="${(2.2 + sd * 1.6).toFixed(1)}"
-                      class="pt${hasStruct ? " has3d" : ""}"
-                      data-id="${r.id}"><title>${r.id}: measured ${r.measured}, predicted ${r.pred}</title></circle>`;
-    }).join("");
+    .map((r) => `<circle cx="${plotXY(r.measured, "x").toFixed(1)}"
+                         cy="${plotXY(r.pred, "y").toFixed(1)}"
+                         r="${(2.4 + r.spread * 1.4).toFixed(1)}"
+                         class="pt${withStructure.has(r.id) ? " has3d" : ""}"
+                         data-id="${r.id}"><title>${r.id}: measured ${r.measured}, predicted ${r.pred}</title></circle>`)
+    .join("");
 
   $("parity").innerHTML = `
     <svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Predicted versus measured affinity">
@@ -72,9 +69,182 @@ function drawParity() {
     c.addEventListener("click", () => select(c.dataset.id)));
 }
 
-// --- does the uncertainty mean anything? ------------------------------------
+// --- head to head ------------------------------------------------------------
 
-/** Spearman rank correlation: does claimed uncertainty rank actual error? */
+function pearson(xs, ys) {
+  const n = xs.length;
+  const mx = xs.reduce((s, v) => s + v, 0) / n;
+  const my = ys.reduce((s, v) => s + v, 0) / n;
+  let num = 0, dx = 0, dy = 0;
+  for (let i = 0; i < n; i++) {
+    const a = xs[i] - mx, b = ys[i] - my;
+    num += a * b; dx += a * a; dy += b * b;
+  }
+  return num / Math.sqrt(dx * dy);
+}
+
+function stats(records) {
+  const pred = records.map((r) => r.pred);
+  const meas = records.map((r) => r.measured);
+  const err = records.map((r) => absErr(r.pred, r.measured));
+  const mean = meas.reduce((s, v) => s + v, 0) / meas.length;
+  const ssTot = meas.reduce((s, v) => s + (v - mean) ** 2, 0);
+  const ssRes = records.reduce((s, r) => s + (r.pred - r.measured) ** 2, 0);
+  return {
+    r: pearson(pred, meas),
+    mae: err.reduce((s, v) => s + v, 0) / err.length,
+    r2: 1 - ssRes / ssTot,
+  };
+}
+
+function drawHeadToHead() {
+  const shared = Object.keys(byId).filter((id) => byId[id].forest && byId[id].network);
+  const f = stats(shared.map((id) => byId[id].forest));
+  const n = stats(shared.map((id) => byId[id].network));
+
+  const rows = [
+    ["Random forest, 115 features", f, true],
+    ["Two-tower network", n, false],
+  ];
+  const best = Math.max(f.r, n.r);
+
+  $("headToHead").innerHTML = rows.map(([label, s, lead]) => `
+    <div class="h2hrow${lead ? " lead" : ""}">
+      <span class="h2hname">${label}</span>
+      <span class="h2hbar"><i style="width:${((s.r / best) * 100).toFixed(0)}%"></i></span>
+      <span class="h2hval">${s.r >= 0 ? "+" : ""}${s.r.toFixed(3)}</span>
+      <span class="h2hval">${s.mae.toFixed(3)}</span>
+      <span class="h2hval">${s.r2 >= 0 ? "+" : ""}${s.r2.toFixed(3)}</span>
+    </div>`).join("");
+
+  $("h2hCount").textContent = shared.length.toLocaleString();
+  $("h2hVerdict").innerHTML =
+    `On the same ${shared.length} held-out complexes the forest is ahead by
+     ${(f.r - n.r).toFixed(3)} in <i>r</i> and ${(n.mae - f.mae).toFixed(3)} pK in
+     mean error. Giving the network the same 115 features narrowed the gap but did
+     not close it — r 0.626 against the forest's 0.696 on a matched split — so the
+     two graph encoders are adding 420,000 parameters without adding accuracy.
+     On 2,959 training complexes that is the ordinary outcome: bagged trees on
+     well-built features are hard to beat at this scale.`;
+}
+
+// --- selected complex --------------------------------------------------------
+
+function select(id) {
+  const rec = byId[id];
+  if (!rec || !rec.forest) return;
+  const fr = rec.forest, nr = rec.network;
+
+  $("selId").textContent = id.toUpperCase();
+  $("selMeasured").textContent = fr.measured.toFixed(2);
+  $("selForest").textContent = fr.pred.toFixed(2);
+  $("selForestErr").textContent = absErr(fr.pred, fr.measured).toFixed(2);
+  $("selSpread").textContent = fr.spread.toFixed(2);
+
+  const netRow = $("selNetworkRow");
+  if (nr) {
+    netRow.hidden = false;
+    $("selNetwork").textContent = nr.pred.toFixed(2);
+    $("selNetworkErr").textContent = absErr(nr.pred, nr.measured).toFixed(2);
+  } else {
+    netRow.hidden = true;
+  }
+
+  const closer = nr && absErr(fr.pred, fr.measured) <= absErr(nr.pred, nr.measured);
+  $("selVerdict").className = `verdict ${closer ? "ok" : "miss"}`;
+  $("selVerdict").textContent = !nr
+    ? `Off by ${absErr(fr.pred, fr.measured).toFixed(2)} pK.`
+    : closer
+      ? `The forest is closer here, by ${(absErr(nr.pred, nr.measured) - absErr(fr.pred, fr.measured)).toFixed(2)} pK.`
+      : `The network is closer here, by ${(absErr(fr.pred, fr.measured) - absErr(nr.pred, nr.measured)).toFixed(2)} pK. It happens on about a third of complexes.`;
+
+  $("parity").querySelectorAll("circle").forEach((c) =>
+    c.classList.toggle("sel", c.dataset.id === id));
+
+  const s = N.structures[id];
+  $("noStructure").hidden = !!s;
+  $("viewerWrap").hidden = !s;
+  if (s) showStructure(s);
+}
+
+function showStructure(s) {
+  if (!viewer) viewer = $3Dmol.createViewer($("viewer"), { backgroundAlpha: 0 });
+  viewer.clear();
+  const lines = [String(s.elements.length), "pocket+ligand"];
+  s.elements.forEach((el, i) => {
+    lines.push(`${el} ${s.xyz[i * 3]} ${s.xyz[i * 3 + 1]} ${s.xyz[i * 3 + 2]}`);
+  });
+  viewer.addModel(lines.join("\n"), "xyz");
+  const ligand = { index: Array.from({ length: s.n_ligand }, (_, i) => i) };
+  viewer.setStyle({}, { line: { colorscheme: "greyCarbon", opacity: 0.55 } });
+  viewer.setStyle(ligand, { stick: { radius: 0.21, colorscheme: "cyanCarbon" },
+                            sphere: { radius: 0.34, colorscheme: "cyanCarbon" } });
+  viewer.zoomTo(ligand);
+  viewer.zoom(0.75);
+  viewer.render();
+}
+
+// --- summary table -----------------------------------------------------------
+
+function fillSummary() {
+  const m = F.metrics;
+  const fmt = (k) => `${m[k].mean >= 0 && k !== "mae" && k !== "rmse" ? "+" : ""}${m[k].mean.toFixed(3)} ± ${m[k].sd.toFixed(3)}`;
+  $("mR").textContent = fmt("pearson");
+  $("mMae").textContent = fmt("mae");
+  $("mR2").textContent = fmt("r2");
+  $("mBaseline").textContent = m.baseline_mae.mean.toFixed(3);
+  $("mRepeats").textContent = m.n_repeats;
+  $("mTest").textContent = F.complexes.length.toLocaleString();
+  $("mFeatures").textContent = F.feature_names.length;
+  $("mStructs").textContent = Object.keys(N.structures).length;
+  $("mDataset").textContent = F.dataset;
+}
+
+// --- wiring ------------------------------------------------------------------
+
+window.addEventListener("DOMContentLoaded", async () => {
+  try {
+    [F, N] = await Promise.all([
+      fetch("affinity.json").then((r) => r.json()),
+      fetch("fusion.json").then((r) => r.json()),
+    ]);
+  } catch (e) {
+    $("error").textContent = `Could not load the predictions: ${e}`;
+    $("error").hidden = false;
+    return;
+  }
+
+  F.complexes.forEach((c) => { byId[c.id] = { ...(byId[c.id] || {}), forest: c }; });
+  N.complexes.forEach((c) => { byId[c.id] = { ...(byId[c.id] || {}), network: c }; });
+
+  fillSummary();
+  drawParity();
+  drawHeadToHead();
+  drawNetworkUncertainty();
+  $("loading").hidden = true;
+  $("app").hidden = false;
+
+  const withStructure = Object.keys(N.structures).filter((id) => byId[id]?.forest);
+  const pool = () => withStructure.map((id) => byId[id].forest);
+  $("best").addEventListener("click", () =>
+    select(pool().sort((a, b) => absErr(a.pred, a.measured) - absErr(b.pred, b.measured))[0].id));
+  $("worst").addEventListener("click", () =>
+    select(pool().sort((a, b) => absErr(b.pred, b.measured) - absErr(a.pred, a.measured))[0].id));
+  $("disagree").addEventListener("click", () => {
+    const both = withStructure.filter((id) => byId[id].network);
+    both.sort((a, b) =>
+      Math.abs(byId[b].forest.pred - byId[b].network.pred) -
+      Math.abs(byId[a].forest.pred - byId[a].network.pred));
+    select(both[0]);
+  });
+
+  select(withStructure[0]);
+});
+
+// --- the network's uncertainty, which the forest does not produce -------------
+// Kept because it is a result in its own right: the graph model reports an
+// epistemic and an aleatoric term, and neither predicts which answers are wrong.
+
 function spearman(xs, ys) {
   const rank = (a) => {
     const idx = a.map((v, i) => [v, i]).sort((p, q) => p[0] - q[0]);
@@ -82,7 +252,7 @@ function spearman(xs, ys) {
     for (let i = 0; i < idx.length;) {
       let j = i;
       while (j + 1 < idx.length && idx[j + 1][0] === idx[i][0]) j++;
-      const avg = (i + j) / 2 + 1;          // average rank for ties
+      const avg = (i + j) / 2 + 1;
       for (let k = i; k <= j; k++) r[idx[k][1]] = avg;
       i = j + 1;
     }
@@ -99,59 +269,6 @@ function spearman(xs, ys) {
   return num / Math.sqrt(dx * dy);
 }
 
-function drawReliability() {
-  const R = D.reliability;
-  const w = 460, h = 240, pad = 46;
-  const maxV = Math.max(...R.map((b) => Math.max(b.mean_abs_error, b.mean_uncertainty))) * 1.15;
-  const bw = (w - 2 * pad) / R.length;
-  const y = (v) => h - pad - (v / maxV) * (h - 2 * pad);
-
-  const bars = R.map((b, i) => {
-    const x = pad + i * bw;
-    return `
-      <rect x="${x + bw * 0.12}" y="${y(b.mean_abs_error)}" width="${bw * 0.34}"
-            height="${h - pad - y(b.mean_abs_error)}" class="bar err"/>
-      <rect x="${x + bw * 0.52}" y="${y(b.mean_uncertainty)}" width="${bw * 0.34}"
-            height="${h - pad - y(b.mean_uncertainty)}" class="bar unc"/>
-      <text x="${x + bw / 2}" y="${h - pad + 15}" class="tick" text-anchor="middle">Q${i + 1}</text>`;
-  }).join("");
-
-  $("reliability").innerHTML = `
-    <svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Error by uncertainty quintile">
-      <line x1="${pad}" y1="${h - pad}" x2="${w - pad}" y2="${h - pad}" class="grid"/>
-      ${bars}
-      <text x="${w / 2}" y="${h - 6}" class="axis" text-anchor="middle">
-        test complexes grouped by how uncertain the model said it was →</text>
-    </svg>`;
-
-  // Two different questions, and here they have different answers.
-  const rho = spearman(D.complexes.map(totalSd), D.complexes.map(err));
-  const ratio = R[R.length - 1].mean_abs_error / R[0].mean_abs_error;
-  const m = D.metrics;
-
-  // The quintile ratio compares only the end bins. If the bins in between do not
-  // rise in order, that ratio flatters a trend the chart plainly does not show,
-  // so say which it is rather than quoting the convenient number.
-  const errs = R.map((b) => b.mean_abs_error);
-  const monotonic = errs.every((v, i) => i === 0 || v >= errs[i - 1]);
-
-  $("reliabilityVerdict").innerHTML =
-    `<strong>Two different questions, with different answers.</strong>
-     <br><br>
-     <em>Are the error bars the right width?</em> Yes.
-     ${(m.coverage_1sigma * 100).toFixed(0)}% of measurements fall inside 1σ and
-     ${(m.coverage_2sigma * 100).toFixed(0)}% inside 2σ, against an ideal of 68% and 95%.
-     <br><br>
-     <em>Do they flag which predictions are bad?</em> Barely. Error rises
-     ${ratio.toFixed(2)}× from the most confident fifth of the test set to the least${
-       monotonic ? "" : ", and not in order — the middle bins break the trend"}. Across
-     all ${D.complexes.length} complexes the rank correlation between claimed uncertainty
-     and actual error is ρ&nbsp;=&nbsp;${rho.toFixed(2)}.
-     <br><br>
-     The first does not imply the second, and this is one split, so read ρ as indicative.`;
-}
-
-/** Rank-average two signals into one. Scale-free, so no calibration needed. */
 function rankAverage(a, b) {
   const ranks = (xs) => {
     const idx = xs.map((v, i) => [v, i]).sort((p, q) => p[0] - q[0]);
@@ -163,172 +280,60 @@ function rankAverage(a, b) {
   return ra.map((v, i) => v + rb[i]);
 }
 
-/** Which signal actually ranks the model's errors? Compare them head to head. */
-function drawSignals() {
-  const withAd = D.complexes.filter((r) => r.ad_sim !== null && r.ad_sim !== undefined);
-  if (!withAd.length || !D.ad) { $("signalsPanel").hidden = true; return; }
+function drawNetworkUncertainty() {
+  const rows = N.complexes.filter((r) => r.ad_sim !== null && r.ad_sim !== undefined);
+  if (!rows.length) { $("uncertaintyPanel").hidden = true; return; }
 
-  const e = withAd.map(err);
-  const epi = withAd.map((r) => r.epi);
-  const ale = withAd.map((r) => r.ale);
-  const model = withAd.map(totalSd);
-  const adDist = withAd.map((r) => 1 - r.ad_sim);     // distance, not similarity
-  const combined = rankAverage(model, adDist);
+  const err = rows.map((r) => absErr(r.pred, r.measured));
+  const epi = rows.map((r) => r.epi);
+  const ale = rows.map((r) => r.ale);
+  const total = rows.map((r) => Math.hypot(r.epi, r.ale));
+  const adDist = rows.map((r) => 1 - r.ad_sim);
+  const combined = rankAverage(total, adDist);
 
-  const rows = [
-    ["epistemic \u03c3 \u2014 the Bayesian head", spearman(epi, e)],
-    ["aleatoric \u03c3 \u2014 predicted noise", spearman(ale, e)],
-    ["both, as the model reports them", spearman(model, e)],
-    ["distance from training chemistry", spearman(adDist, e)],
-    ["the last two, rank-averaged", spearman(combined, e)],
+  const signals = [
+    ["epistemic σ — the model's own doubt", spearman(epi, err)],
+    ["aleatoric σ — predicted noise", spearman(ale, err)],
+    ["both, as the model reports them", spearman(total, err)],
+    ["similarity to the training ligands", spearman(adDist, err)],
+    ["the last two, rank-averaged", spearman(combined, err)],
   ];
-  const best = Math.max(...rows.map(([, v]) => Math.abs(v)));
+  const best = Math.max(...signals.map(([, v]) => Math.abs(v)));
 
-  $("signals").innerHTML = rows.map(([label, rho]) => {
-    const w = (Math.abs(rho) / best) * 100;
-    return `<div class="sigrow">
+  $("signals").innerHTML = signals.map(([label, rho]) => `
+    <div class="sigrow">
       <span class="siglabel">${label}</span>
-      <span class="sigbar"><i class="${rho < 0 ? "neg" : ""}" style="width:${w.toFixed(0)}%"></i></span>
+      <span class="sigbar"><i class="${rho < 0 ? "neg" : ""}" style="width:${((Math.abs(rho) / best) * 100).toFixed(0)}%"></i></span>
       <span class="sigval">${rho >= 0 ? "+" : ""}${rho.toFixed(3)}</span>
-    </div>`;
-  }).join("");
+    </div>`).join("");
 
-  const adRho = spearman(adDist, e);
-  const combRho = spearman(combined, e);
-  const epiRho = spearman(epi, e);
-  const inside = withAd.filter((r) => r.ad_sim >= D.ad.threshold);
-  const outside = withAd.filter((r) => r.ad_sim < D.ad.threshold);
-  const maeIn = inside.reduce((s, r) => s + err(r), 0) / Math.max(inside.length, 1);
-  const maeOut = outside.reduce((s, r) => s + err(r), 0) / Math.max(outside.length, 1);
+  const m = N.metrics;
+  const epiRho = spearman(epi, err);
+  const adRho = spearman(adDist, err);
+  const combRho = spearman(combined, err);
+  const t = N.ad ? N.ad.threshold : 0;
+  const outside = rows.filter((r) => r.ad_sim < t);
+  const inside = rows.filter((r) => r.ad_sim >= t);
+  const mae = (a) => a.reduce((s, r) => s + absErr(r.pred, r.measured), 0) / Math.max(a.length, 1);
 
-  $("signalsVerdict").innerHTML =
-    `Two things stand out. The <strong>epistemic</strong> term \u2014 the part the Bayesian
-     machinery exists to produce \u2014 scores \u03c1&nbsp;=&nbsp;${epiRho.toFixed(3)}, so it
-     is not ranking errors at all; what little signal the model reports comes from the
-     predicted noise term beside it.
+  $("uncertaintyVerdict").innerHTML =
+    `<strong>The widths are right; the ordering is not.</strong>
+     ${(m.coverage_1sigma * 100).toFixed(0)}% of measurements land inside 1σ and
+     ${(m.coverage_2sigma * 100).toFixed(0)}% inside 2σ, against an ideal of 68% and
+     95%. But across all ${rows.length} complexes the rank correlation between the
+     stated uncertainty and the error actually made is only
+     ρ&nbsp;=&nbsp;${spearman(total, err).toFixed(2)}, and the epistemic half alone
+     scores ${epiRho.toFixed(3)} — at or below zero.
      <br><br>
-     And a measure that <em>ignores the model entirely</em> \u2014 how similar the ligand is
-     to the nearest one in training \u2014 does about as well
-     (\u03c1&nbsp;=&nbsp;${adRho.toFixed(3)}). The ${outside.length} test ligands outside the
-     applicability domain average ${maeOut.toFixed(2)} pK of error against
-     ${maeIn.toFixed(2)} for those inside. Because the two capture different failure modes,
-     averaging their ranks beats either alone (\u03c1&nbsp;=&nbsp;${combRho.toFixed(3)})
-     \u2014 still modest, but it is the most useful warning available here, and the better
-     half of it needs no neural network.
+     A measure that ignores the model entirely does better: how similar the ligand
+     is to the training set scores ρ&nbsp;=&nbsp;${adRho.toFixed(3)}, and the
+     ${outside.length} complexes outside that similarity threshold average
+     ${mae(outside).toFixed(2)} pK of error against ${mae(inside).toFixed(2)} for
+     those inside. Combining the two beats either alone
+     (${combRho.toFixed(3)}).
      <br><br>
-     <em>Read the middle three rows as tied.</em> Monte Carlo sampling makes the model's
-     own uncertainty stochastic, and repeating this over eight passes of the same weights
-     moves each correlation by roughly ±0.02 — enough to reorder them. Two things did hold
-     in every pass: the epistemic term never crossed zero, and the combination beat both of
-     its parts. The training-distance signal is also the steadiest of the five, because it
-     involves no sampling at all — which for deciding whether to trust a prediction matters
-     as much as the correlation does.`;
+     Three mechanisms were tried for this — a Bayesian posterior, dropout sampling,
+     and an ensemble of five independently trained networks — and none beat the
+     similarity lookup. Read the middle rows as tied: repeating the measurement
+     moves each by about ±0.02.`;
 }
-
-// --- selected complex --------------------------------------------------------
-
-function select(id) {
-  const r = D.complexes.find((c) => c.id === id);
-  if (!r) return;
-  selected = r;
-
-  $("selId").textContent = r.id.toUpperCase();
-  $("selPred").textContent = r.pred.toFixed(2);
-  $("selMeasured").textContent = r.measured.toFixed(2);
-  $("selError").textContent = err(r).toFixed(2);
-  $("selEpi").textContent = r.epi.toFixed(2);
-  $("selAle").textContent = r.ale.toFixed(2);
-  $("selAtoms").textContent = `${r.n_ligand} ligand · ${r.n_pocket} pocket`;
-
-  const sd = totalSd(r);
-  const within = err(r) <= 2 * sd;
-  $("selVerdict").className = `verdict ${within ? "ok" : "miss"}`;
-  $("selVerdict").textContent = within
-    ? `Off by ${err(r).toFixed(2)} pK, inside its own 2σ interval of ±${(2 * sd).toFixed(2)}.`
-    : `Off by ${err(r).toFixed(2)} pK, outside its own 2σ interval of ±${(2 * sd).toFixed(2)}. `
-      + `Wrong, and confident about it.`;
-
-  $("parity").querySelectorAll("circle").forEach((c) =>
-    c.classList.toggle("sel", c.dataset.id === id));
-
-  const s = D.structures[r.id];
-  $("noStructure").hidden = !!s;
-  $("viewerWrap").hidden = !s;
-  if (s) showStructure(s);
-}
-
-/** Render the pocket and ligand. Coordinates ship as a flat array. */
-function showStructure(s) {
-  if (!viewer) {
-    viewer = $3Dmol.createViewer($("viewer"), { backgroundAlpha: 0 });
-  }
-  viewer.clear();
-
-  // 3Dmol reads XYZ directly, which avoids inventing PDB records we do not have.
-  const lines = [String(s.elements.length), "pocket+ligand"];
-  s.elements.forEach((el, i) => {
-    lines.push(`${el} ${s.xyz[i * 3]} ${s.xyz[i * 3 + 1]} ${s.xyz[i * 3 + 2]}`);
-  });
-  viewer.addModel(lines.join("\n"), "xyz");
-
-  // Ligand atoms come first in the export; everything after is pocket.
-  const ligand = { index: Array.from({ length: s.n_ligand }, (_, i) => i) };
-  viewer.setStyle({}, { line: { colorscheme: "greyCarbon", opacity: 0.55 } });
-  viewer.setStyle(ligand, { stick: { radius: 0.21, colorscheme: "cyanCarbon" },
-                            sphere: { radius: 0.34, colorscheme: "cyanCarbon" } });
-  viewer.zoomTo(ligand);
-  viewer.zoom(0.75);
-  viewer.render();
-}
-
-// --- wiring ------------------------------------------------------------------
-
-function fillSummary() {
-  const m = D.metrics;
-  $("mMae").textContent = m.mae.toFixed(2);
-  $("mR2").textContent = m.r2.toFixed(2);
-  $("mR").textContent = m.pearson.toFixed(2);
-  $("mCov1").textContent = `${(m.coverage_1sigma * 100).toFixed(0)}%`;
-  $("mCov2").textContent = `${(m.coverage_2sigma * 100).toFixed(0)}%`;
-  $("mBaseline").textContent = m.baseline_mae.toFixed(2);
-  $("mTrain").textContent = m.n_train.toLocaleString();
-  $("mTest").textContent = m.n_test.toLocaleString();
-  $("mGroups").textContent = D.split.n_scaffold_groups.toLocaleString();
-  $("mStructs").textContent = Object.keys(D.structures).length;
-}
-
-window.addEventListener("DOMContentLoaded", async () => {
-  try {
-    D = await (await fetch(DATA_URL)).json();
-  } catch (e) {
-    $("error").textContent = `Could not load the predictions: ${e}`;
-    $("error").hidden = false;
-    return;
-  }
-  fillSummary();
-  drawParity();
-  drawReliability();
-  drawSignals();
-  $("loading").hidden = true;
-  $("app").hidden = false;
-
-  const withStructure = Object.keys(D.structures);
-  $("worst").addEventListener("click", () => {
-    const pool = D.complexes.filter((r) => withStructure.includes(r.id));
-    select(pool.sort((a, b) => err(b) - err(a))[0].id);
-  });
-  $("confidentMiss").addEventListener("click", () => {
-    const pool = D.complexes.filter((r) => withStructure.includes(r.id));
-    select(pool.sort((a, b) => (err(b) / totalSd(b)) - (err(a) / totalSd(a)))[0].id);
-  });
-  $("best").addEventListener("click", () => {
-    const pool = D.complexes.filter((r) => withStructure.includes(r.id));
-    select(pool.sort((a, b) => err(a) - err(b))[0].id);
-  });
-
-  // Open on a confident miss: the page asks whether the model knows when it is
-  // wrong, so the first thing a visitor sees should be a case where it did not.
-  const pool = D.complexes.filter((r) => withStructure.includes(r.id));
-  const opener = pool.sort((a, b) => (err(b) / totalSd(b)) - (err(a) / totalSd(a)))[0];
-  select((opener ?? D.complexes[0]).id);
-});

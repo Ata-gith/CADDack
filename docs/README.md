@@ -5,7 +5,7 @@ Two static pages, live at **https://ata-gith.github.io/CADDack/**.
 | Page | Model | Runs where |
 |---|---|---|
 | `index.html` | Tanimoto search over 902 ECFP4 fingerprints, plus a RandomForest solubility estimate | **live in the browser** |
-| `fusion.html` | `FusionAffinityNet` — two-tower Bayesian GNN, trained on PDBbind | precomputed |
+| `fusion.html` | Random forest on 115 interaction features, with the two-tower network alongside | precomputed |
 
 The similarity page takes any SMILES, fingerprints it and searches the reference
 set live. The affinity page cannot run its model in the browser:
@@ -27,7 +27,8 @@ run. GitHub Pages serves this directory as-is.
 | `index.html` / `app.js` | Similarity page: fingerprinting, Tanimoto search, forest evaluation, rendering |
 | `model.json` | Trained forest + training fingerprints, from `scripts/build_demo_model.py` |
 | `fusion.html` / `fusion.js` | Affinity page: parity plot, reliability chart, 3D viewer |
-| `fusion.json` | Held-out predictions with uncertainty, from `scripts/build_fusion_demo.py` |
+| `affinity.json` | Forest + held-out predictions, from `scripts/train_affinity_rf.py` |
+| `fusion.json` | Network predictions, uncertainty and 3D coordinates, from `scripts/build_fusion_demo.py` |
 | `style.css` | Design tokens and components shared by both pages |
 | `3Dmol-min.js` | 3Dmol.js, vendored from npm, for the binding-site viewer |
 | `RDKit_minimal.js` / `.wasm` | RDKit's MinimalLib, vendored from npm (see below) |
