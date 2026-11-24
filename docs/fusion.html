@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Can it tell when it's wrong? — CADDack</title>
-<meta name="description" content="A Bayesian protein–ligand affinity model, and a test of whether the uncertainty it reports actually predicts its errors.">
+<title>Binding affinity from structure — CADDack</title>
+<meta name="description" content="A random forest predicts protein-ligand binding affinity from 113 structural features, compared against a neural network on the same data.">
 <link rel="stylesheet" href="style.css">
 <style>
 .nav{display:flex;gap:14px;align-items:center;margin-bottom:18px;font-size:.9rem}
@@ -137,11 +137,10 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 </nav>
 
 <header>
-  <h1>Can it tell when it's wrong?</h1>
-  <p class="sub">A random forest on interaction features predicts how tightly a
-  molecule binds a protein pocket. A two-tower Bayesian graph network was built first and
-  is shown alongside it: both were scored on the same 740 held-out complexes, and the
-  forest wins.</p>
+  <h1>Binding affinity from structure</h1>
+  <p class="sub">A random forest predicts how tightly a molecule binds a protein pocket,
+  from 113 numbers describing the two. A neural network trained on the same data is shown
+  alongside it.</p>
 </header>
 
 <p class="loading" id="loading">Loading predictions…</p>
@@ -156,28 +155,20 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
   from a held-out test set.</p>
 
   <section class="panel">
-    <h2>What is being predicted</h2>
-    <p class="body">A protein has a pocket on its surface. A drug-like molecule — the
-    <strong>ligand</strong> — sits in that pocket. The question is how tightly the two
-    stick together.</p>
-
-    <p class="body">Tightness is measured as a dissociation constant <i>K</i><sub>d</sub>,
-    the ligand concentration at which half the pockets are occupied. It spans many orders
-    of magnitude, so it is reported as
-    <span class="eq">p<i>K</i> = −log<sub>10</sub> <i>K</i><sub>d</sub></span>.
-    Higher means tighter, and <strong>one unit means ten times tighter</strong>. The
-    molecules here run from p<i>K</i> 2 to 12, with a standard deviation of 1.88.</p>
-
-    <p class="body">The input is a set of 3D coordinates: the ligand's atoms, plus every
-    protein atom within 6 Å of it. A typical case is 27 ligand atoms and 140 pocket atoms.
-    The output is a single number, plus a statement of how sure the model is about it.</p>
+    <h2>The task</h2>
+    <p class="body">A ligand sits in a pocket on a protein's surface. How tightly it
+    holds is a dissociation constant, reported as
+    <span class="eq">p<i>K</i> = −log<sub>10</sub> <i>K</i><sub>d</sub></span>: higher is
+    tighter, one unit is ten times tighter. These complexes span p<i>K</i> 2 to 12, with
+    a standard deviation of 1.88.</p>
+    <p class="body">Input: the ligand's atoms and every protein atom within 8 Å, typically
+    27 and 140. Output: one number.</p>
   </section>
 
   <section class="panel">
     <h2>The model</h2>
-    <p class="body">113 numbers describe each complex, and a random forest of 300
-    decision trees maps them to an affinity. Nothing about the molecule is learned from
-    raw structure: every input is computed directly from the coordinates.</p>
+    <p class="body">113 numbers per complex, fed to 300 decision trees whose predictions
+    are averaged.</p>
 
     <div class="schematic">
       <svg viewBox="0 0 760 290" role="img"
@@ -215,92 +206,50 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
     </div>
 
     <dl class="defs">
-      <dt>Why contact counts carry the most</dt>
-      <dd>The four input groups were added in that order, and each addition was measured.
-      Descriptors alone reach <i>r</i> 0.589. The Vina terms lift it to 0.636. The hundred
-      contact counts lift it to 0.696. What the last two have in common is that they
-      describe <em>pairs</em> of atoms facing each other across the interface, which is
-      what binding physically is.</dd>
-
       <dt>Vina terms</dt>
-      <dd>Six scalars from AutoDock Vina's empirical scoring function: four shaped
-      functions of how far each ligand–protein atom pair sits from van der Waals contact,
-      plus a hydrophobic-contact count and a hydrogen-bond count.</dd>
+      <dd>Six numbers from AutoDock Vina's scoring function, each a sum over
+      ligand–protein atom pairs of a function of their separation: four shaped energy
+      terms, a hydrophobic-contact count, a hydrogen-bond count.</dd>
 
       <dt>Contact counts</dt>
-      <dd>Every ligand–protein atom pair is sorted into a bin by what the two elements are
-      (carbon, nitrogen, oxygen, sulfur-and-halogens, everything else) and how far apart
-      they sit (under 3.5 Å, then out to 4.5, 6 and 8 Å). Five classes squared by four
-      shells gives a hundred counts, divided by the ligand's atom count so the features
-      describe contact density rather than molecular size.</dd>
+      <dd>Every ligand–protein atom pair sorted into a bin by element pair (C, N, O,
+      sulfur-and-halogens, other) and separation (under 3.5 Å, then 4.5, 6, 8 Å). Five
+      classes squared by four shells is 100 counts, divided by ligand atom count.</dd>
 
-      <dt>Random forest</dt>
-      <dd>Three hundred decision trees, each fitted to a different resample of the
-      training complexes and a random subset of features at every split. The prediction is
-      their average; how much they disagree is reported alongside it.</dd>
+      <dt>Where the accuracy comes from</dt>
+      <dd>The groups were added in order and each was measured: descriptors alone give
+      <i>r</i> 0.589, adding the Vina terms gives 0.636, adding the contact counts gives
+      0.696. Both of the groups that helped describe <em>pairs</em> of atoms facing each
+      other, which is what binding is.</dd>
     </dl>
-  </section>
-
-  <section class="panel">
-    <h2>Two kinds of uncertainty</h2>
-    <p class="body">The forest reports how much its trees disagree. The graph network goes
-    further and splits its uncertainty in two, which is worth defining because the
-    comparison below turns on it.</p>
-
-    <dl class="defs">
-      <dt><strong>Epistemic</strong> — the model's own doubt</dt>
-      <dd>The disagreement between those thirty draws. If they cluster tightly, the training
-      data pinned this prediction down; if they scatter, it did not. In principle this
-      shrinks as training data grows, because it reflects ignorance rather than anything
-      about the world.</dd>
-
-      <dt><strong>Aleatoric</strong> — irreducible noise</dt>
-      <dd>A second output, trained to predict how noisy this particular measurement is. The
-      affinities come from different laboratories using different assays, and the same
-      complex measured twice can differ by around 0.5 p<i>K</i>. No amount of extra data
-      removes that. The model is told to estimate it rather than pretend it is zero.</dd>
-    </dl>
-
-    <p class="body">They combine as
-    <span class="eq">σ<sub>total</sub> = √(σ<sub>epistemic</sub>² + σ<sub>aleatoric</sub>²)</span>,
-    which is the ± figure shown with each prediction.</p>
   </section>
 
   <section class="panel">
     <h2>Reading the numbers</h2>
-    <p class="body">Five quantities, all computed on the 740 complexes held out of
-    training.</p>
+    <p class="body">All computed on 740 complexes held out of training.</p>
 
     <dl class="defs metrics">
-      <dt>MAE <span class="unit">pK units, lower is better</span></dt>
-      <dd>Mean absolute error: the average size of a miss. An MAE of 1.2 means the typical
-      prediction is off by a factor of about 16 in binding strength. Predicting the training
-      mean for everything scores 1.59, so that is the number to beat for the model to be
-      doing anything at all.</dd>
+      <dt>MAE <span class="unit">pK, lower better</span></dt>
+      <dd>Average size of a miss. 1.07 means the typical prediction is off by a factor of
+      about 12 in binding strength. Predicting the training mean scores 1.59.</dd>
 
-      <dt>Pearson <i>r</i> <span class="unit">−1 to 1, higher is better</span></dt>
-      <dd>How well predictions and measurements move together as a straight line. It is
-      unaffected by scale: a model that predicts exactly half the true value every time
-      still scores 1. So it measures <em>ranking</em> — whether the model can tell a tight
-      binder from a weak one — and ignores whether the absolute numbers are right.</dd>
+      <dt>Pearson <i>r</i> <span class="unit">−1 to 1, higher better</span></dt>
+      <dd>How well predictions and measurements line up. Unaffected by scale: halving every
+      prediction still scores 1. It measures ranking, not accuracy.</dd>
 
-      <dt>R² <span class="unit">≤ 1, higher is better</span></dt>
-      <dd><span class="eq">1 − Σ(pred − true)² / Σ(true − mean)²</span>. The fraction of the
-      variance the model accounts for. Unlike <i>r</i> it does punish scale and offset
-      errors, so <i>r</i> can be high while R² is poor. Zero means no better than predicting
-      the mean; negative means worse.</dd>
+      <dt>R² <span class="unit">≤ 1, higher better</span></dt>
+      <dd><span class="eq">1 − Σ(pred − true)² / Σ(true − mean)²</span>. Fraction of
+      variance accounted for. Unlike <i>r</i> it punishes scale and offset, so <i>r</i> can
+      be high while R² is poor. Zero means no better than predicting the mean.</dd>
 
       <dt>Coverage <span class="unit">target 68% and 95%</span></dt>
-      <dd>How often the measurement actually falls inside the model's stated ±1σ and ±2σ.
-      For a well-calibrated Gaussian these should be 68% and 95%. Below means the error bars
-      are too narrow — overconfident. Above means too wide.</dd>
+      <dd>How often the measurement falls inside the stated ±1σ and ±2σ. Below target means
+      the error bars are too narrow.</dd>
 
-      <dt>Spearman ρ <span class="unit">−1 to 1, higher is better</span></dt>
-      <dd>Correlation between the model's stated uncertainty and the size of the error it
-      actually made, computed on ranks rather than values. This is the question coverage
-      cannot answer: not "are the error bars the right width on average" but "do they get
-      wider on the predictions that turn out wrong". Zero means they carry no
-      per-prediction information.</dd>
+      <dt>Spearman ρ <span class="unit">−1 to 1, higher better</span></dt>
+      <dd>Rank correlation between a model's stated uncertainty and the error it made.
+      Coverage asks whether the error bars are the right width on average; ρ asks whether
+      they widen on the predictions that turn out wrong.</dd>
     </dl>
   </section>
 
@@ -351,10 +300,9 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
   <section class="panel" id="dockPanel">
     <h2>Score your own pose</h2>
-    <p class="body">The shipped model is a forest, so it can run here. Give it a receptor
-    and a docked ligand as PDBQT — what AutoDock Vina reads and writes — and it will build
-    the same 113 features and walk the same trees. Nothing is uploaded; the files are read
-    in your browser.</p>
+    <p class="body">Give the forest a receptor and a docked ligand as PDBQT, the format
+    AutoDock Vina reads and writes. It builds the same 113 features and walks the same
+    trees. The files are read in your browser and never uploaded.</p>
 
     <div class="dockform">
       <label class="drop" for="recFile">
@@ -395,36 +343,85 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
   <section class="panel">
     <h2>Network prediction</h2>
-    <p class="body">The two-tower Bayesian graph network was built before the forest and
-    is still in the package. It reads the ligand's bond graph and the complex's 3D
-    coordinates through learned encoders rather than hand-built features. Scored on the
-    same <b id="h2hCount">—</b> held-out complexes:</p>
+    <p class="body">A neural network was trained on the same complexes and the same split.
+    It is kept here because it fails in an instructive way.</p>
+
+    <dl class="defs">
+      <dt>Tower</dt>
+      <dd>One encoder: a stack of layers turning a view of the complex into a fixed-length
+      vector of 128 numbers. This network has two, reading different things, joined end to
+      end before the final layers.</dd>
+
+      <dt>Ligand tower</dt>
+      <dd>Reads the molecule as a graph of atoms and bonds, no coordinates. Each atom
+      starts as a vector of its properties; three rounds of updating each atom from its
+      bonded neighbours leave every vector describing a local substructure. Summing them
+      gives the molecule's vector.</dd>
+
+      <dt>Geometry tower</dt>
+      <dd>Reads the 3D coordinates of ligand and pocket together. Atoms within 6 A count as
+      connected, and each message between them is weighted by a smooth function of their
+      separation. Distances only, never positions, so rotating the complex changes
+      nothing.</dd>
+
+      <dt>Bayesian head</dt>
+      <dd>The layers after the towers hold a Gaussian distribution per weight rather than a
+      single value. Each prediction samples every weight, so thirty draws give thirty
+      slightly different answers.</dd>
+    </dl>
+
+    <p class="body" style="margin-top:18px">Both models on the same
+    <b id="h2hCount">&mdash;</b> held-out complexes:</p>
 
     <div class="h2h">
       <div class="h2hhead">
         <span class="h2hname">model</span><span></span>
-        <span class="h2hval">r</span><span class="h2hval">MAE</span><span class="h2hval">R²</span>
+        <span class="h2hval">r</span><span class="h2hval">MAE</span><span class="h2hval">R&sup2;</span>
       </div>
       <div id="headToHead"></div>
     </div>
     <p class="body" id="h2hVerdict" style="margin-top:16px"></p>
+
+    <dl class="defs" style="margin-top:18px">
+      <dt>The gap is in the features, not the model class</dt>
+      <dd>The network was then given the same 113 features alongside its towers. It reached
+      <i>r</i> 0.626 against the forest's 0.696 on a matched split: closer, still behind.
+      The 420,000 parameters in the two towers add nothing the features do not already
+      supply.</dd>
+
+      <dt>2,959 training complexes is a small dataset</dt>
+      <dd>Bagged trees on well-built features are hard to beat at that size. A network this
+      large needs either far more data or features that cannot be written down by hand, and
+      every gain measured here came from features that could.</dd>
+
+      <dt>The forest also runs in a browser</dt>
+      <dd>Trees serialise and can be walked in JavaScript, which is how the panel above
+      scores an uploaded pose. The network builds its graph inside the forward pass and
+      cannot be exported that way.</dd>
+    </dl>
   </section>
 
   <section class="panel" id="uncertaintyPanel">
-    <h2>Does the network know when it is wrong?</h2>
-    <p class="body">Only the network produces the epistemic and aleatoric split defined
-    above, so this question is about it rather than the forest. Each signal is ranked
-    against the error it was computed alongside, over every held-out complex. Higher is
-    better; red points the wrong way.</p>
+    <h2>The network's uncertainty</h2>
+    <p class="body">The network splits its uncertainty in two. The <strong>epistemic</strong>
+    part is the disagreement between its thirty weight samples: scatter means the training
+    data did not pin this prediction down, and more data should shrink it. The
+    <strong>aleatoric</strong> part is a separate output trained to predict measurement
+    noise, since these affinities come from different laboratories and the same complex
+    measured twice can differ by about 0.5 pK. They combine as
+    <span class="eq">sigma = sqrt(epistemic&sup2; + aleatoric&sup2;)</span>.</p>
+
+    <p class="body">Each signal is ranked against the error it was computed alongside.
+    Higher is better; red points the wrong way.</p>
     <div id="signals"></div>
     <p class="body" id="uncertaintyVerdict" style="margin-top:16px"></p>
   </section>
 
   <section class="panel">
     <h2>Results on the held-out set</h2>
-    <p class="body">The forest, over <b id="mRepeats">—</b> scaffold splits, reported as
-    mean ± standard deviation. Single-split differences on this data are routinely smaller
-    than the spread between splits, so one number on its own means little.</p>
+    <p class="body">The forest over <b id="mRepeats">—</b> scaffold splits, mean ±
+    standard deviation. Differences between splits here routinely exceed differences
+    between methods, so a single number means little.</p>
     <div class="statline">
       <span>Pearson <i>r</i> <b id="mR"></b></span>
       <span>MAE <b id="mMae"></b> pK</span>
@@ -444,70 +441,19 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
     </div>
   </section>
 
-<section class="panel">
-    <h2>What would improve this</h2>
-    <p class="body">A random forest on fifteen scalar descriptors — molecular weight,
-    lipophilicity, atom counts, and the six Vina terms — reaches <i>r</i> 0.636 and MAE
-    1.154 on this same split. The network here is level on ranking and behind on accuracy,
-    so it is not yet earning its extra complexity. That comparison, rather than published
-    leaderboards, is what the next change should be measured against.</p>
-
-    <dl class="defs">
-      <dt>1. Interaction features, not just atom features</dt>
-      <dd>The Vina terms helped because they describe <em>pairs</em> of atoms across the
-      interface, which is what binding is. The learned encoders describe atoms, and have to
-      discover pairwise structure themselves from 2,959 examples. Counting contacts binned
-      by distance and atom-type pair — the approach behind the best published scoring
-      models — gives that structure directly instead of hoping it is learned.</dd>
-
-      <dt>2. Direction, not just distance</dt>
-      <dd>The geometry encoder uses only the distance between atoms, which makes it
-      correctly indifferent to rotation but blind to angle. Hydrogen bonds are strongly
-      directional — a donor pointing at an acceptor is worth far more than one beside it —
-      and that distinction is currently invisible.</dd>
-
-      <dt>3. Chemistry the pocket is missing</dt>
-      <dd>Only element and bonded-neighbour counts reach the model. Partial charges,
-      explicit hydrogens and metal ions are absent; cofactors and metals are in fact
-      discarded during preprocessing, so a zinc-dependent enzyme arrives without its zinc.
-      Electrostatics is the largest single term in most binding models and is entirely
-      missing here.</dd>
-
-      <dt>4. More data, and the right kind</dt>
-      <dd>2,959 training complexes against roughly 420,000 parameters. The full PDBbind
-      general set is about four times larger at lower structural quality, and pretraining
-      on it before fine-tuning on the refined subset is the standard remedy. Worth noting
-      that simply using more data has already been tried here without moving the ranking,
-      which is why it sits below the representation changes.</dd>
-
-      <dt>5. Stop the variance absorbing the error</dt>
-      <dd>Predictions span only 0.43 to 0.76 of the measured spread depending on the run.
-      With a loss that lets the model widen its own error bars, hedging toward the mean is
-      a cheap way to reduce it. Weighting the loss so that cannot pay, or calibrating the
-      output scale against held-out data, would convert existing ranking ability into
-      accuracy without changing the architecture.</dd>
-    </dl>
-
-    <p class="body">The honest order is 1, 2, 3 before 4 and 5. Several uncertainty
-    mechanisms have been tried here — a Bayesian posterior, dropout sampling, and an
-    ensemble of five independently trained networks — and none produced an error signal
-    better than measuring how similar the ligand is to the training set. That consistently
-    points at what the model can represent rather than at how it expresses doubt.</p>
-  </section>
-
   <footer class="panel">
     <h2>Data and caveats</h2>
-    <p class="body">Trained on the PDBbind v2015 refined set: 3,699 protein–ligand
-    complexes with crystal structures and measured affinities. The split holds out whole
-    Bemis–Murcko scaffolds — the ring skeleton of a molecule — so the test ligands are
-    structurally novel rather than close relatives of the training ones. That is harder
-    than the usual random split, and the numbers are lower because of it.</p>
+    <p class="body">PDBbind v2015 refined set: 3,699 complexes with crystal structures and
+    measured affinities. The split holds out whole Bemis–Murcko scaffolds — a molecule's
+    ring skeleton — so test ligands are structurally new, not close relatives of training
+    ones. Harder than a random split, and the numbers are lower for it.</p>
 
-    <p class="body">Affinity benchmarks built on this data are
-    <a href="https://www.nature.com/articles/s42256-025-01124-5">known to overlap heavily
-    between train and test</a>, which inflates published results. The scaffold split here
-    reduces that risk without eliminating it. The pocket stops at 6 Å, so the model never
-    sees the wider protein, and one held-out split is one sample.</p>
+    <p class="body">Three caveats. Affinity benchmarks on PDBbind
+    <a href="https://www.nature.com/articles/s42256-025-01124-5">overlap heavily between
+    train and test</a>, which inflates published results; the scaffold split reduces that
+    without eliminating it. Scaffold splitting separates ligands but not proteins, so the
+    same pocket can appear on both sides. And the features stop at 8 Å, so the wider
+    protein is never seen.</p>
 
     <p class="body">Rebuild with <code>scripts/build_fusion_demo.py</code>. Full
     mathematics in <a href="elbo_math.pdf">elbo_math.pdf</a> and

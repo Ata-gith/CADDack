@@ -119,13 +119,8 @@ function drawHeadToHead() {
 
   $("h2hCount").textContent = shared.length.toLocaleString();
   $("h2hVerdict").innerHTML =
-    `On the same ${shared.length} held-out complexes the forest is ahead by
-     ${(f.r - n.r).toFixed(3)} in <i>r</i> and ${(n.mae - f.mae).toFixed(3)} pK in
-     mean error. Giving the network the same 115 features narrowed the gap but did
-     not close it — r 0.626 against the forest's 0.696 on a matched split — so the
-     two graph encoders are adding 420,000 parameters without adding accuracy.
-     On 2,959 training complexes that is the ordinary outcome: bagged trees on
-     well-built features are hard to beat at this scale.`;
+    `The forest is ahead by ${(f.r - n.r).toFixed(3)} in <i>r</i> and
+     ${(n.mae - f.mae).toFixed(3)} pK in mean error.`;
 }
 
 // --- selected complex --------------------------------------------------------
@@ -328,25 +323,19 @@ function drawNetworkUncertainty() {
   const mae = (a) => a.reduce((s, r) => s + absErr(r.pred, r.measured), 0) / Math.max(a.length, 1);
 
   $("uncertaintyVerdict").innerHTML =
-    `<strong>The widths are right; the ordering is not.</strong>
+    `<strong>The error bars are the right width but the wrong shape.</strong>
      ${(m.coverage_1sigma * 100).toFixed(0)}% of measurements land inside 1σ and
-     ${(m.coverage_2sigma * 100).toFixed(0)}% inside 2σ, against an ideal of 68% and
-     95%. But across all ${rows.length} complexes the rank correlation between the
-     stated uncertainty and the error actually made is only
+     ${(m.coverage_2sigma * 100).toFixed(0)}% inside 2σ, against 68% and 95% ideal.
+     Yet the rank correlation between stated uncertainty and actual error is
      ρ&nbsp;=&nbsp;${spearman(total, err).toFixed(2)}, and the epistemic half alone
-     scores ${epiRho.toFixed(3)} — at or below zero.
+     is ${epiRho.toFixed(3)}.
      <br><br>
-     A measure that ignores the model entirely does better: how similar the ligand
-     is to the training set scores ρ&nbsp;=&nbsp;${adRho.toFixed(3)}, and the
-     ${outside.length} complexes outside that similarity threshold average
-     ${mae(outside).toFixed(2)} pK of error against ${mae(inside).toFixed(2)} for
-     those inside. Combining the two beats either alone
-     (${combRho.toFixed(3)}).
-     <br><br>
-     Three mechanisms were tried for this — a Bayesian posterior, dropout sampling,
-     and an ensemble of five independently trained networks — and none beat the
-     similarity lookup. Read the middle rows as tied: repeating the measurement
-     moves each by about ±0.02.`;
+     Ligand similarity to the training set, which uses no model at all, scores
+     ${adRho.toFixed(3)}. The ${outside.length} complexes below its threshold average
+     ${mae(outside).toFixed(2)} pK of error against ${mae(inside).toFixed(2)} above it.
+     A Bayesian posterior, dropout sampling and a five-model ensemble were each tried;
+     none beat that lookup. Repeating the measurement moves every row by about ±0.02,
+     so the middle three are tied.`;
 }
 
 // --- scoring an uploaded pose ------------------------------------------------
