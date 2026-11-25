@@ -367,7 +367,11 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
       <dt>Bayesian head</dt>
       <dd>The layers after the towers hold a Gaussian distribution per weight rather than a
       single value. Each prediction samples every weight, so thirty draws give thirty
-      slightly different answers.</dd>
+      slightly different answers. Only the head works this way: the 324,000 weights in the
+      two towers are fixed numbers, and 197,000 in the head are distributions. The term that
+      pulls those distributions toward the prior is also scaled down by a factor of 100
+      during training, which improved accuracy but makes the result narrower than a
+      posterior proper.</dd>
     </dl>
 
     <p class="body" style="margin-top:18px">Both models on the same
@@ -410,6 +414,11 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
     noise, since these affinities come from different laboratories and the same complex
     measured twice can differ by about 0.5 pK. They combine as
     <span class="eq">sigma = sqrt(epistemic&sup2; + aleatoric&sup2;)</span>.</p>
+
+    <p class="body">Because only the head is sampled, the epistemic term measures
+    uncertainty about the final map given a fixed representation. An unfamiliar complex
+    produces an unfamiliar representation, which the towers hand over without comment, so
+    nothing downstream can flag it. The numbers below follow from that.</p>
 
     <p class="body">Each signal is ranked against the error it was computed alongside.
     Higher is better; red points the wrong way.</p>
