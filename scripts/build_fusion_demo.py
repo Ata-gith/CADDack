@@ -210,6 +210,10 @@ def main(argv=None) -> int:
                          "alongside the two towers. On a random forest these lift "
                          "r from 0.585 to 0.636 over nine descriptors alone, so "
                          "they carry signal the towers were not extracting")
+    ap.add_argument("--bayesian-towers", action="store_true",
+                    help="Give the encoders Gaussian weights too, not only the head. "
+                         "Every MC draw then changes the representation, not just the "
+                         "map applied to it. Costs KL on ~520k parameters.")
     ap.add_argument("--geo-readout", choices=["interaction", "sum"], default="interaction",
                     help="'interaction' pools over protein-ligand contacts; 'sum' "
                          "pools an undifferentiated bag of atoms, which is a "
@@ -327,6 +331,7 @@ def main(argv=None) -> int:
         num_gine_layers=3, num_geo_interactions=2, num_rbf=24, cutoff=6.0,
         geo_node_feat_dim=NEIGHBOR_FEAT_DIM if nf else 0,
         geo_readout=args.geo_readout,
+        bayesian_towers=args.bayesian_towers,
         global_feat_dim=n_vina,
         bayesian_hidden=[256, 128], prior_sigma=args.prior_sigma, dropout=args.dropout)
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
@@ -507,6 +512,7 @@ def main(argv=None) -> int:
               "target": "-log Kd/Ki (pK units)",
               "dataset": "PDBbind v2015 refined set",
               "config": {"epochs": args.epochs, "kl_weight": args.kl_weight,
+                         "bayesian_towers": args.bayesian_towers,
                          "mc_samples": args.mc_samples, "hidden": args.hidden,
                          "neighbor_features": nf, "mc_dropout": args.mc_dropout,
                          "seed": args.seed, "init_seed": init_seed,

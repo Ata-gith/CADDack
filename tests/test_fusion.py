@@ -595,3 +595,66 @@ def test_geometry_tower_rejects_an_unknown_readout():
 
     with pytest.raises(ValueError, match="readout must be"):
         GeometryTower.build(hidden_channels=8, readout="average")
+
+
+@pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit required")
+def test_bayesian_towers_make_the_representation_vary_between_draws():
+    """Point-estimate encoders return the same geometry vector on every draw, so
+    the epistemic term measures only the final map's uncertainty. Gaussian
+    encoder weights make the representation itself vary."""
+    import torch
+    from torch_geometric.data import Batch, Data
+
+    from caddack.gnn.geometry import NEIGHBOR_FEAT_DIM
+    from caddack.gnn.models import FusionAffinityNet
+
+    spread = {}
+    for bayesian in (False, True):
+        torch.manual_seed(0)
+        model = FusionAffinityNet.build(
+            ligand_in_channels=7, ligand_edge_dim=7, hidden_channels=32,
+            num_gine_layers=1, num_geo_interactions=1, num_rbf=8, cutoff=6.0,
+            geo_node_feat_dim=NEIGHBOR_FEAT_DIM, geo_readout="sum",
+            bayesian_towers=bayesian, bayesian_hidden=[32])
+        geo = Data(z=torch.tensor([6, 7, 8, 6, 6]), pos=torch.randn(5, 3))
+        geo.nfeat = torch.rand(5, NEIGHBOR_FEAT_DIM)
+        geo.is_ligand = torch.tensor([1., 1., 0., 0., 0.])
+        batch = Batch.from_data_list([geo])
+        model.eval()
+        with torch.no_grad():
+            draws = torch.stack([
+                model.geo_tower(batch.z, batch.pos, batch.batch,
+                                batch.nfeat, batch.is_ligand)
+                for _ in range(8)])
+        spread[bayesian] = float(draws.std(dim=0).mean())
+
+    assert spread[False] == 0.0, "point-estimate encoder should be deterministic"
+    assert spread[True] > 1e-3, (
+        f"Gaussian encoder weights gave spread {spread[True]:.2e}; sampling is "
+        "not reaching the representation")
+
+
+@pytest.mark.skipif(not all_gnn_deps, reason="torch+pyg+rdkit required")
+def test_bayesian_tower_weights_are_charged_kl():
+    """Sampling the encoders without paying their KL is free noise: nothing
+    holds the posterior near the prior, so it collapses onto the training set.
+    The KL has to grow when the encoders become stochastic."""
+    import torch
+
+    from caddack.gnn.geometry import NEIGHBOR_FEAT_DIM
+    from caddack.gnn.models import FusionAffinityNet
+
+    kl = {}
+    for bayesian in (False, True):
+        torch.manual_seed(0)
+        model = FusionAffinityNet.build(
+            ligand_in_channels=7, ligand_edge_dim=7, hidden_channels=32,
+            num_gine_layers=2, num_geo_interactions=2, num_rbf=8, cutoff=6.0,
+            geo_node_feat_dim=NEIGHBOR_FEAT_DIM, geo_readout="sum",
+            bayesian_towers=bayesian, bayesian_hidden=[32])
+        kl[bayesian] = float(model.kl().detach())
+        n_rho = sum(p.numel() for n, p in model.named_parameters() if "_rho" in n)
+        assert n_rho > 0
+    assert kl[True] > kl[False] * 1.5, (
+        f"KL barely moved ({kl[False]:.0f} -> {kl[True]:.0f}); the encoders' "
+        "weights are being sampled outside the objective")

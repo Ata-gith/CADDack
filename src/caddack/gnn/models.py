@@ -125,6 +125,22 @@ class GaussianRBF:
         return _GaussianRBF()
 
 
+def _submodule_kl(module, torch):
+    """Sum kl() over every submodule that defines one.
+
+    Lets a tower built with Bayesian layers report its own KL without the caller
+    needing to know which of its parts are stochastic.
+    """
+    total = None
+    for child in module.modules():
+        if child is module:
+            continue
+        fn = getattr(child, "kl", None)
+        if callable(fn):
+            total = fn() if total is None else total + fn()
+    return total if total is not None else torch.zeros((), dtype=torch.float)
+
+
 class GeometryTower:
     """SchNet-style continuous-filter conv tower over interatomic distances.
 
@@ -140,6 +156,8 @@ class GeometryTower:
         cutoff: float = 6.0,
         node_feat_dim: int = 0,
         readout: str = "interaction",
+        bayesian: bool = False,
+        prior_sigma: float = 1.0,
     ):
         torch, nn, F, global_add_pool, radius_graph, scatter = _require_torch_geo()
         if readout not in ("interaction", "sum"):
@@ -147,15 +165,27 @@ class GeometryTower:
 
         rbf_module = GaussianRBF.build(num_rbf=num_rbf, cutoff=cutoff)
 
+        # With bayesian=True the tower's weights are distributions rather than
+        # fixed numbers, so sampling changes the representation and not only the
+        # map applied to it. Without it the representation is identical on every
+        # draw, which is why the head-only epistemic term cannot register an
+        # unfamiliar complex.
+        def _linear(in_dim, out_dim):
+            if not bayesian:
+                return nn.Linear(in_dim, out_dim)
+            from caddack.gnn.bayes import BayesianLinear
+
+            return BayesianLinear.build(in_dim, out_dim, prior_sigma=prior_sigma)
+
         def _filter_net(in_dim, out_dim):
             return nn.Sequential(
-                nn.Linear(in_dim, out_dim),
+                _linear(in_dim, out_dim),
                 nn.SiLU(),
-                nn.Linear(out_dim, out_dim),
+                _linear(out_dim, out_dim),
             )
 
         def _atom_mlp(dim):
-            return nn.Sequential(nn.Linear(dim, dim), nn.SiLU(), nn.Linear(dim, dim))
+            return nn.Sequential(_linear(dim, dim), nn.SiLU(), _linear(dim, dim))
 
         class _InteractionBlock(nn.Module):
             def __init__(self):
@@ -185,9 +215,9 @@ class GeometryTower:
                 # starts from local chemistry rather than element identity.
                 if node_feat_dim:
                     self.feat_proj = nn.Sequential(
-                        nn.Linear(node_feat_dim, hidden_channels),
+                        _linear(node_feat_dim, hidden_channels),
                         nn.SiLU(),
-                        nn.Linear(hidden_channels, hidden_channels),
+                        _linear(hidden_channels, hidden_channels),
                     )
                 self.rbf = rbf_module
                 self.blocks = nn.ModuleList([_InteractionBlock() for _ in range(num_interactions)])
@@ -197,13 +227,13 @@ class GeometryTower:
                     # One embedding per protein-ligand contact, from the two atom
                     # states and their separation.
                     self.pair_net = nn.Sequential(
-                        nn.Linear(hidden_channels + num_rbf, hidden_channels),
+                        _linear(hidden_channels + num_rbf, hidden_channels),
                         nn.SiLU(),
-                        nn.Linear(hidden_channels, hidden_channels),
+                        _linear(hidden_channels, hidden_channels),
                     )
                     # Four pooled views -> back to hidden_channels, so the fusion
                     # head's input size is unchanged.
-                    self.out_proj = nn.Linear(4 * hidden_channels, hidden_channels)
+                    self.out_proj = _linear(4 * hidden_channels, hidden_channels)
 
             def forward(self, z, pos, batch, nfeat=None, is_ligand=None):
                 h = self.embed(z.clamp(0, num_elements))
@@ -284,6 +314,7 @@ class FusionAffinityNet:
         num_elements: int = 100,
         geo_node_feat_dim: int = 0,
         geo_readout: str = "interaction",
+        bayesian_towers: bool = False,
         global_feat_dim: int = 0,
         bayesian_hidden: list[int] | None = None,
         prior_sigma: float = 1.0,
@@ -298,6 +329,8 @@ class FusionAffinityNet:
         geo_tower = GeometryTower.build(
             node_feat_dim=geo_node_feat_dim,
             readout=geo_readout,
+            bayesian=bayesian_towers,
+            prior_sigma=prior_sigma,
             num_elements=num_elements,
             hidden_channels=hidden_channels,
             num_rbf=num_rbf,
@@ -306,7 +339,16 @@ class FusionAffinityNet:
         )
 
         def mlp(in_dim, out_dim):
-            return nn.Sequential(nn.Linear(in_dim, out_dim), nn.ReLU(), nn.Linear(out_dim, out_dim))
+            if not bayesian_towers:
+                return nn.Sequential(nn.Linear(in_dim, out_dim), nn.ReLU(),
+                                     nn.Linear(out_dim, out_dim))
+            from caddack.gnn.bayes import BayesianLinear
+
+            return nn.Sequential(
+                BayesianLinear.build(in_dim, out_dim, prior_sigma=prior_sigma),
+                nn.ReLU(),
+                BayesianLinear.build(out_dim, out_dim, prior_sigma=prior_sigma),
+            )
 
         bayes_head = BayesianMLP.build(
             # The two towers, plus any per-complex features supplied alongside
@@ -366,7 +408,13 @@ class FusionAffinityNet:
                 return mu, log_var
 
             def kl(self):
-                return self.bayes_head.kl()
+                # Includes the towers when they were built with Gaussian weights.
+                # Their KL has to enter the objective, or sampling them is free and
+                # the posterior collapses to whatever fits the training set.
+                total = self.bayes_head.kl()
+                for conv in self.lig_convs:
+                    total = total + _submodule_kl(conv, torch)
+                return total + _submodule_kl(self.geo_tower, torch)
 
             def predict_with_uncertainty(self, lig_data, geo_data, n_samples: int = 30,
                                          mc_dropout: bool = True):
