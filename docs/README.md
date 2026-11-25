@@ -215,6 +215,47 @@ correlation itself.
 
 Reproduce with `scripts/rho_stability.py`.
 
+### Sampling the encoders, and why it did not help
+
+The spreads above are over Monte Carlo passes of **one** trained model. Retraining
+moves ρ far more: over two seeds the head-only model gave ρ = −0.063 ± **0.068**,
+an order of magnitude wider than the ±0.016 within a single model. Anything
+claimed about ρ needs multiple seeds.
+
+The standing explanation for the negative epistemic ρ was that only the head is
+sampled, so every draw reuses one fixed representation and an unfamiliar complex
+arrives looking ordinary. `--bayesian-towers` tests that: it builds the geometry
+tower's five projections and the ligand tower's GINE MLPs from `BayesianLinear`
+and adds their KL to the objective, taking the sampled share of the weights from
+21% to 97%. Twelve epochs, two seeds, matched splits:
+
+| | ρ(epistemic, \|error\|) | Pearson *r* | MAE |
+|---|---|---|---|
+| head only | −0.063 ± 0.068 | 0.500 ± 0.076 | 1.359 ± 0.129 |
+| encoders sampled too | −0.099 ± 0.032 | 0.563 ± **0.003** | 1.242 ± **0.007** |
+
+**The uncertainty did not improve.** ρ stayed negative; the two arms overlap well
+inside their spreads. So the fixed-representation story was wrong, or at least not
+the binding constraint.
+
+The actual obstacle is that weight noise is isotropic. Sampling a Gaussian weight
+matrix spreads the output in proportion to ‖input‖, not to the input's distance
+from the training distribution, and no term in the ELBO rewards a wider posterior
+where data is absent — the KL pulls every σ toward the prior uniformly and the
+likelihood pushes every σ down uniformly. In the trained geometry tower σ/|μ|
+settles at 0.43, so the noise sits below the signal everywhere, evenly. Bayes-by-
+backprop answers *how tightly did the training set pin these weights down*; it was
+never constructed to answer *does this complex resemble the training set*. Two
+further hypotheses were checked and rejected: ρ(epistemic, |prediction − centre|)
+and ρ(epistemic, |measured − centre|) are both ≈ 0 across all four runs, so the
+epistemic term is not merely tracking prediction extremity.
+
+What did improve is **seed stability**. Pearson *r* varied by sd 0.076 across seeds
+head-only and by 0.003 with the encoders sampled, at slightly better accuracy —
+weight noise acting as a regulariser, which is the one thing here it is good at.
+That is two seeds, so it is suggestive rather than settled, and the flag stays off
+by default.
+
 ### Handing the model Vina's interaction terms
 
 The towers were reproducible by nine scalar descriptors, and adding Vina's five

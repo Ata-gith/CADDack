@@ -367,9 +367,9 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
       <dt>Bayesian head</dt>
       <dd>The layers after the towers hold a Gaussian distribution per weight rather than a
       single value. Each prediction samples every weight, so thirty draws give thirty
-      slightly different answers. Only the head works this way: the 324,000 weights in the
-      two towers are fixed numbers, and 197,000 in the head are distributions. The term that
-      pulls those distributions toward the prior is also scaled down by a factor of 100
+      slightly different answers. Only the head works this way here: the 324,000 weights in
+      the two towers are fixed numbers, and 197,000 in the head are distributions. The term
+      that pulls those distributions toward the prior is also scaled down by a factor of 100
       during training, which improved accuracy but makes the result narrower than a
       posterior proper.</dd>
     </dl>
@@ -415,10 +415,24 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
     measured twice can differ by about 0.5 pK. They combine as
     <span class="eq">sigma = sqrt(epistemic&sup2; + aleatoric&sup2;)</span>.</p>
 
-    <p class="body">Because only the head is sampled, the epistemic term measures
-    uncertainty about the final map given a fixed representation. An unfamiliar complex
-    produces an unfamiliar representation, which the towers hand over without comment, so
-    nothing downstream can flag it. The numbers below follow from that.</p>
+    <p class="body">The epistemic term does not work. It ranks errors at <i>rho</i>
+    &minus;0.10 &plusmn; 0.05 over four runs: no useful signal, and the sign is the wrong
+    one. The suspected cause was that only the head is sampled, so every draw reuses one
+    fixed representation and an unfamiliar complex arrives looking ordinary. That was
+    tested directly. Giving both towers Gaussian weights too, which takes the sampled
+    share of the weights from 21% to 97%, left <i>rho</i> at &minus;0.10 and changed
+    nothing.</p>
+
+    <p class="body">The reason is that weight noise is isotropic. Sampling a Gaussian
+    weight matrix spreads the output in proportion to the size of the input vector, not to
+    how far that input sits from anything seen in training, and nothing in the objective
+    rewards a wider posterior where data is absent. The method answers how tightly the
+    training set pinned the weights down; it was never built to answer whether this
+    particular complex resembles the training set.</p>
+
+    <p class="body">The signal that does point the right way uses no weights at all: the
+    Tanimoto distance from the test ligand to its nearest training ligand, at <i>rho</i>
+    +0.06 &plusmn; 0.06 on the same four runs. Weak, and still the better of the two.</p>
 
     <p class="body">Each signal is ranked against the error it was computed alongside.
     Higher is better; red points the wrong way.</p>
