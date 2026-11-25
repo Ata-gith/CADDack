@@ -416,12 +416,12 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
     <span class="eq">sigma = sqrt(epistemic&sup2; + aleatoric&sup2;)</span>.</p>
 
     <p class="body">The epistemic term does not work. It ranks errors at <i>rho</i>
-    &minus;0.10 &plusmn; 0.05 over four runs: no useful signal, and the sign is the wrong
-    one. The suspected cause was that only the head is sampled, so every draw reuses one
+    &minus;0.08 &plusmn; 0.04 over five training runs: no useful signal, and the sign is the
+    wrong one. The suspected cause was that only the head is sampled, so every draw reuses one
     fixed representation and an unfamiliar complex arrives looking ordinary. That was
     tested directly. Giving both towers Gaussian weights too, which takes the sampled
-    share of the weights from 21% to 97%, left <i>rho</i> at &minus;0.10 and changed
-    nothing.</p>
+    share of the weights from 21% to 97%, left <i>rho</i> at &minus;0.07 &plusmn; 0.05
+    and changed nothing. It cost twice the parameters, so it is off by default.</p>
 
     <p class="body">The reason is that weight noise is isotropic. Sampling a Gaussian
     weight matrix spreads the output in proportion to the size of the input vector, not to
@@ -432,7 +432,7 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
     <p class="body">The signal that does point the right way uses no weights at all: the
     Tanimoto distance from the test ligand to its nearest training ligand, at <i>rho</i>
-    +0.06 &plusmn; 0.06 on the same four runs. Weak, and still the better of the two.</p>
+    +0.05 &plusmn; 0.04 over all ten runs. Weak, and still the better of the two.</p>
 
     <p class="body">Each signal is ranked against the error it was computed alongside.
     Higher is better; red points the wrong way.</p>
