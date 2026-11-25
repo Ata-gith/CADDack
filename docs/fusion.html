@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Binding affinity from structure — CADDack</title>
-<meta name="description" content="A random forest predicts protein-ligand binding affinity from 113 structural features, compared against a neural network on the same data.">
+<meta name="description" content="A random forest predicts protein-ligand binding affinity from 1,137 features describing the interface and the ligand, compared against a neural network on the same data.">
 <link rel="stylesheet" href="style.css">
 <style>
 .nav{display:flex;gap:14px;align-items:center;margin-bottom:18px;font-size:.9rem}
@@ -139,7 +139,7 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 <header>
   <h1>Binding affinity from structure</h1>
   <p class="sub">A random forest predicts how tightly a molecule binds a protein pocket,
-  from 113 numbers describing the two. A neural network trained on the same data is shown
+  from 1,137 numbers describing the two. A neural network trained on the same data is shown
   alongside it.</p>
 </header>
 
@@ -167,7 +167,7 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
   <section class="panel">
     <h2>The model</h2>
-    <p class="body">113 numbers per complex, fed to 300 decision trees whose predictions
+    <p class="body">1,137 numbers per complex, fed to 300 decision trees whose predictions
     are averaged.</p>
 
     <div class="schematic">
@@ -190,7 +190,7 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
         <text class="s" x="650" y="60">by element pair and distance</text>
 
         <rect class="box vec" x="240" y="118" width="280" height="36" rx="6"/>
-        <text class="t" x="380" y="141">one vector of 113 numbers</text>
+        <text class="t" x="380" y="141">one vector of 1,137 numbers</text>
 
         <rect class="box head" x="200" y="186" width="360" height="54" rx="8"/>
         <text class="t" x="380" y="208">300 decision trees, averaged</text>
@@ -314,7 +314,7 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
   <section class="panel" id="dockPanel">
     <h2>Score your own pose</h2>
     <p class="body">Give the forest a receptor and a docked ligand as PDBQT, the format
-    AutoDock Vina reads and writes. It builds the same 113 features and walks the same
+    AutoDock Vina reads and writes. It builds the same 1,137 features and walks the same
     trees. The files are read in your browser and never uploaded.</p>
 
     <div class="dockform">
@@ -401,7 +401,7 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
     <dl class="defs" style="margin-top:18px">
       <dt>The gap is in the features, not the model class</dt>
-      <dd>The network was then given the same 113 features alongside its towers. It reached
+      <dd>The network was then given the same 113 structural features alongside its towers. It reached
       <i>r</i> 0.626 against the forest's 0.696 on a matched split: closer, still behind.
       The 420,000 parameters in the two towers add nothing the features do not already
       supply.</dd>

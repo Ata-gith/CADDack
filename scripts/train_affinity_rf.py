@@ -45,7 +45,8 @@ from caddack.qsar.split import scaffold_split  # noqa: E402
 CACHE_NAME = "pdbbind_examples.pkl"
 
 
-def build_matrix(examples, cache: Path | None, data_dir: Path, from_raw: bool):
+def build_matrix(examples, cache: Path | None, data_dir: Path, from_raw: bool,
+                 fp_bits: int = 0):
     """Featurise every complex once, caching the result.
 
     Featurisation is the slow part and depends only on the structures, never on
@@ -55,6 +56,13 @@ def build_matrix(examples, cache: Path | None, data_dir: Path, from_raw: bool):
     if cache is not None and cache.exists():
         blob = np.load(cache, allow_pickle=True)
         if "mask" not in blob:          # written before the split fix
+            cache.unlink()
+        elif int(blob.get("fp_bits", 0)) != fp_bits:
+            # A cache built with a different fingerprint width describes a
+            # different feature space. Silently reusing it would train the model
+            # on one set of columns and score the browser on another.
+            print(f"  features: cache has fp_bits={int(blob.get('fp_bits', 0))}, "
+                  f"need {fp_bits}; rebuilding")
             cache.unlink()
         else:
             print(f"  features: loaded {blob['X'].shape} from {cache.name}")
@@ -75,10 +83,12 @@ def build_matrix(examples, cache: Path | None, data_dir: Path, from_raw: bool):
             # against 0.685 on the same split.
             base = data_dir / "v2015" / ex.pdb_id
             x = features_from_files(base / f"{ex.pdb_id}_pocket.pdb",
-                                    base / f"{ex.pdb_id}_ligand.mol2")
+                                    base / f"{ex.pdb_id}_ligand.mol2",
+                                    fp_bits=fp_bits)
         else:
             x = features_from_atoms(ex.geo.atomic_nums, ex.geo.positions,
-                                    n_ligand=ex.geo.n_ligand, smiles=ex.ligand_smiles)
+                                    n_ligand=ex.geo.n_ligand, smiles=ex.ligand_smiles,
+                                    fp_bits=fp_bits)
         valid.append(x is not None)
         if x is None:
             continue
@@ -97,7 +107,8 @@ def build_matrix(examples, cache: Path | None, data_dir: Path, from_raw: bool):
           f"{'' if mask.all() else f' ({(~mask).sum()} complexes unreadable)'}")
     if cache is not None:
         np.savez_compressed(cache, X=X, y=y, ids=np.array(ids),
-                            smiles=np.array(smiles, dtype=object), mask=mask)
+                            smiles=np.array(smiles, dtype=object), mask=mask,
+                            fp_bits=fp_bits)
     return X, y, ids, smiles, mask
 
 
@@ -192,6 +203,11 @@ def main(argv=None) -> int:
                     default=True,
                     help="featurise from the cached 6 A pockets instead of the raw "
                          "pocket files; faster, and measurably worse")
+    ap.add_argument("--fingerprint-bits", type=int, default=1024,
+                    help="ECFP4 bits appended to the structural features (0 "
+                         "disables). The contact counts describe the interface "
+                         "but discard which ligand made it; the bits restore "
+                         "that. 1024 lifts r 0.686 -> 0.704 over five splits.")
     ap.add_argument("--n-repeats", type=int, default=3)
     ap.add_argument("--test-size", type=float, default=0.2)
     ap.add_argument("--seed", type=int, default=0)
@@ -209,7 +225,8 @@ def main(argv=None) -> int:
 
     tag = ("general" if args.general else "refined") + ("_raw" if args.from_raw else "")
     cache = None if args.no_cache else args.data_dir / f"affinity_features_{tag}.npz"
-    X, y, ids, smiles, mask = build_matrix(examples, cache, args.data_dir, args.from_raw)
+    X, y, ids, smiles, mask = build_matrix(examples, cache, args.data_dir,
+                                           args.from_raw, args.fingerprint_bits)
     all_smiles = [e.ligand_smiles or "" for e in examples]
 
     print(f"  evaluating over {args.n_repeats} scaffold splits")
@@ -229,7 +246,8 @@ def main(argv=None) -> int:
     args.outdir.mkdir(parents=True, exist_ok=True)
     dump(final, args.outdir / "forest.joblib")
     (args.outdir / "metadata.json").write_text(json.dumps({
-        "feature_names": feature_names(),
+        "feature_names": feature_names(args.fingerprint_bits),
+        "fingerprint_bits": args.fingerprint_bits,
         "metrics": summary,
         "n_training_complexes": int(len(y)),
         "dataset": "PDBbind v2015 " + ("general" if args.general else "refined"),
@@ -258,7 +276,8 @@ def main(argv=None) -> int:
           f"MAE {demo_metrics['mae']:.3f}")
     bundle = {
         "forest": export_forest(demo),
-        "feature_names": feature_names(),
+        "feature_names": feature_names(args.fingerprint_bits),
+        "fingerprint_bits": args.fingerprint_bits,
         "metrics": summary,
         "demo_metrics": demo_metrics,
         "dataset": "PDBbind v2015 " + ("general" if args.general else "refined"),

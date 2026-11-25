@@ -355,21 +355,18 @@ function solubilityWords(pk) {
   return "Weak binding, in the millimolar range.";
 }
 
-/** The six descriptors, from a SMILES. Returns null if RDKit cannot parse it. */
-function descriptorsFromSmiles(smiles) {
+/** How many ECFP4 bits this bundle's forest was trained with; 0 if none. */
+const fpBits = () => (F && F.fingerprint_bits) || 0;
+
+/** Descriptors, heavy-atom count and fingerprint for a SMILES, or null.
+ *
+ *  Delegates to dock.js so the page and scripts/check_browser_features.py run
+ *  the same code. That helper also strips salts, which this page previously did
+ *  not while Python always did -- a multi-fragment SMILES was featurised whole
+ *  here and as its largest fragment there. */
+function ligandFromSmiles(smiles) {
   if (!RDKitDock) return null;
-  const mol = RDKitDock.get_mol(smiles);
-  if (!mol || !mol.is_valid()) { mol?.delete(); return null; }
-  const d = JSON.parse(mol.get_descriptors());
-  const heavy = d.NumHeavyAtoms;
-  mol.delete();
-  return {
-    descriptors: {
-      MolWt: d.amw, LogP: d.CrippenClogP, TPSA: d.tpsa,
-      NumHBD: d.NumHBD, NumHBA: d.NumHBA, NumRotBonds: d.NumRotatableBonds,
-    },
-    heavy,
-  };
+  return window.CADDackDock.ligandFeatures(RDKitDock, smiles, fpBits());
 }
 
 function scorePose() {
@@ -387,16 +384,22 @@ function scorePose() {
   if (!rec.z.length) return show("No atoms found in the receptor file. Is it a PDBQT?");
 
   const smiles = $("dockSmiles").value.trim();
-  let desc = smiles ? descriptorsFromSmiles(smiles) : null;
+  let desc = smiles ? ligandFromSmiles(smiles) : null;
   if (smiles && !desc) return show(`Could not parse that SMILES: ${smiles}`);
 
   const approximate = !desc;
   if (approximate) {
-    // Without a SMILES the six descriptors are unavailable. Zeros are honest
-    // placeholders rather than guesses, but the forest was trained with real
-    // values, so the prediction is flagged.
+    // Without a SMILES the descriptors are unavailable, and so is the
+    // fingerprint. Zeroing six of 113 columns left the interaction features
+    // carrying the prediction; zeroing 1030 of 1137 does not, so when the model
+    // uses a fingerprint the SMILES is required rather than guessed at.
+    if (fpBits()) {
+      return show("This model reads the ligand's structure as well as its pose, "
+                + "so it needs the ligand SMILES. Paste it above.");
+    }
     desc = { descriptors: { MolWt: 0, LogP: 0, TPSA: 0, NumHBD: 0, NumHBA: 0,
-                            NumRotBonds: 0 }, heavy: lig.z.filter((z) => z !== 1).length };
+                            NumRotBonds: 0 }, heavy: lig.z.filter((z) => z !== 1).length,
+             fp: null };
   }
 
   const z = [...lig.z, ...rec.z];
@@ -407,7 +410,7 @@ function scorePose() {
               + "Are the two files in the same coordinate frame?");
   }
 
-  const x = D.buildFeatureVector(desc.descriptors, desc.heavy, inter);
+  const x = D.buildFeatureVector(desc.descriptors, desc.heavy, inter, desc.fp);
   if (x.length !== F.feature_names.length) {
     return show(`Built ${x.length} features but the model expects ${F.feature_names.length}.`);
   }

@@ -170,15 +170,72 @@ function interactionFeatures(zAll, xyzAll, nLigandAll) {
 }
 
 /** Assemble the full feature vector in the order the model expects. */
-function buildFeatureVector(descriptors, nLigandHeavy, inter) {
-  return Float64Array.from([
+function buildFeatureVector(descriptors, nLigandHeavy, inter, fp) {
+  const structural = [
     descriptors.MolWt, descriptors.LogP, descriptors.TPSA,
     descriptors.NumHBD, descriptors.NumHBA, descriptors.NumRotBonds,
     nLigandHeavy,
     inter.terms.gauss1, inter.terms.gauss2, inter.terms.repulsion,
     inter.terms.hydrophobic, inter.terms.hbond, inter.vina_inter,
     ...inter.contacts,
-  ]);
+  ];
+  // The fingerprint block, when the model was trained with one. Python appends
+  // it in exactly this position, after the contact counts.
+  return Float64Array.from(fp && fp.length ? [...structural, ...fp] : structural);
+}
+
+// --- ligand features from a SMILES -------------------------------------------
+// These need RDKit, which the caller supplies, so that this module stays usable
+// without it. They live here rather than in the page so that
+// scripts/check_browser_features.py exercises the same code the page runs.
+
+/** The largest fragment, matching Python's smiles_to_mol_clean.
+ *
+ *  Python takes the biggest piece by heavy-atom count and keeps the first on a
+ *  tie (a strictly-greater comparison). Featurising "[Na+].[Cl-]" whole gives a
+ *  different answer from featurising its parent, so both sides have to agree on
+ *  which fragment is the molecule. */
+function stripSalts(RDKit, smiles) {
+  if (!smiles.includes(".")) return smiles;
+  let best = null, bestAtoms = -1;
+  for (const frag of smiles.split(".")) {
+    const m = RDKit.get_mol(frag);
+    if (!m) continue;
+    if (m.is_valid()) {
+      const n = JSON.parse(m.get_descriptors()).NumHeavyAtoms;
+      if (n > bestAtoms) { bestAtoms = n; best = frag; }
+    }
+    m.delete();
+  }
+  return best ?? smiles;
+}
+
+/** Six descriptors, the heavy-atom count and nBits of ECFP4, from a SMILES.
+ *
+ *  Returns null if RDKit cannot parse it. `useChirality` is not optional:
+ *  RDKit.js silently ignores the Python spelling `includeChirality`, which once
+ *  made two stereoisomers score as the same molecule here while Python told
+ *  them apart. */
+function ligandFeatures(RDKit, smiles, nBits) {
+  const mol = RDKit.get_mol(stripSalts(RDKit, smiles));
+  if (!mol || !mol.is_valid()) { mol?.delete(); return null; }
+  const d = JSON.parse(mol.get_descriptors());
+  let fp = null;
+  if (nBits) {
+    const bits = mol.get_morgan_fp(
+      JSON.stringify({ radius: 2, nBits, useChirality: true }));
+    fp = new Float64Array(nBits);
+    for (let i = 0; i < nBits; i++) if (bits[i] === "1") fp[i] = 1;
+  }
+  mol.delete();
+  return {
+    descriptors: {
+      MolWt: d.amw, LogP: d.CrippenClogP, TPSA: d.tpsa,
+      NumHBD: d.NumHBD, NumHBA: d.NumHBA, NumRotBonds: d.NumRotatableBonds,
+    },
+    heavy: d.NumHeavyAtoms,
+    fp,
+  };
 }
 
 // --- forest ------------------------------------------------------------------
@@ -217,5 +274,5 @@ function predictPerTree(forest, x) {
 
 window.CADDackDock = {
   parsePdbqt, interactionFeatures, buildFeatureVector, decodeForest, predictPerTree,
-  ELEMENT_Z,
+  stripSalts, ligandFeatures, ELEMENT_Z,
 };

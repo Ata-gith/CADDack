@@ -110,3 +110,65 @@ def test_load_model_reports_a_missing_directory():
 
     with pytest.raises((FileNotFoundError, OSError)):
         load_model("/nonexistent/affinity")
+
+
+def test_fingerprint_bits_extend_without_disturbing_the_structural_block():
+    """The bits are appended, never interleaved. If they shifted the structural
+    columns the model would read contact counts as fingerprint bits and nothing
+    would raise -- the lengths would still agree."""
+    pytest.importorskip("rdkit")
+    import numpy as np
+
+    from caddack.affinity import features_from_atoms
+    from caddack.affinity.features import STRUCTURAL_DIM, feature_dim, feature_names
+
+    z = [6, 6, 8, 7, 6, 6, 8, 7]
+    pos = [(0., 0., 0.), (1.5, 0., 0.), (3., 0., 0.), (4.5, 0., 0.),
+           (0., 4., 0.), (1.5, 4., 0.), (3., 4., 0.), (4.5, 4., 0.)]
+    kw = dict(atomic_nums=z, positions=pos, n_ligand=4, smiles="CCO")
+
+    plain = features_from_atoms(**kw)
+    with_fp = features_from_atoms(**kw, fp_bits=256)
+    assert plain is not None and with_fp is not None
+    assert len(plain) == STRUCTURAL_DIM == 113
+    assert len(with_fp) == feature_dim(256) == 113 + 256
+    assert np.array_equal(plain, with_fp[:STRUCTURAL_DIM]), (
+        "appending a fingerprint changed the structural features")
+
+    bits = with_fp[STRUCTURAL_DIM:]
+    assert set(np.unique(bits)) <= {0.0, 1.0}, "fingerprint block must be binary"
+    assert bits.sum() > 0, "ethanol should set at least one ECFP bit"
+    assert len(feature_names(256)) == len(with_fp)
+    assert feature_names(256)[STRUCTURAL_DIM] == "ECFP4_0"
+
+
+def test_fingerprint_is_taken_after_salt_stripping():
+    """mol_to_basic_features works on the largest fragment, so the fingerprint
+    has to as well. Fingerprinting the whole multi-fragment string would make
+    the browser and Python disagree on 1024 columns at once."""
+    pytest.importorskip("rdkit")
+    import numpy as np
+
+    from caddack.affinity import features_from_atoms
+
+    z = [6, 6, 8, 7, 6, 6, 8, 7]
+    pos = [(0., 0., 0.), (1.5, 0., 0.), (3., 0., 0.), (4.5, 0., 0.),
+           (0., 4., 0.), (1.5, 4., 0.), (3., 4., 0.), (4.5, 4., 0.)]
+    kw = dict(atomic_nums=z, positions=pos, n_ligand=4, fp_bits=256)
+
+    parent = features_from_atoms(**kw, smiles="CCO")
+    salt = features_from_atoms(**kw, smiles="CCO.[Na+].[Cl-]")
+    assert parent is not None and salt is not None
+    assert np.array_equal(parent, salt), (
+        "the sodium and chloride reached the features; salts are not being stripped")
+
+
+def test_model_carries_the_width_it_was_trained_with():
+    """A model featurised at the wrong width lines up no columns at all. The
+    width belongs to the model, so the model is what supplies it."""
+    from caddack.affinity.model import AffinityModel
+
+    m = AffinityModel(forest=None, feature_names=["a", "b", "c"], metrics={},
+                      fingerprint_bits=512)
+    assert m.fingerprint_bits == 512
+    assert AffinityModel(forest=None, feature_names=[], metrics={}).fingerprint_bits == 0

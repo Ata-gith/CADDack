@@ -21,6 +21,22 @@ class AffinityModel:
     forest: object
     feature_names: list[str]
     metrics: dict
+    #: ECFP4 bits the model was trained with. Anything featurising for this
+    #: model has to use the same width, or the columns do not line up.
+    fingerprint_bits: int = 0
+
+    def featurize(self, *args, **kwargs) -> np.ndarray | None:
+        """Featurise for *this* model, with its own fingerprint width.
+
+        Call this rather than ``features_from_atoms`` directly: the width is a
+        property of the trained model, and getting it wrong shifts every contact
+        count into a fingerprint column without raising anything until the
+        length check below.
+        """
+        from caddack.affinity.features import features_from_atoms
+
+        kwargs.setdefault("fp_bits", self.fingerprint_bits)
+        return features_from_atoms(*args, **kwargs)
 
     def predict(self, x: np.ndarray) -> tuple[float, float]:
         """Predicted pK and the standard deviation across trees."""
@@ -33,6 +49,9 @@ class AffinityModel:
 
     def predict_batch(self, X: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         X = np.asarray(X, dtype=np.float64)
+        if X.ndim != 2 or X.shape[1] != len(self.feature_names):
+            raise ValueError(
+                f"expected (n, {len(self.feature_names)}) features, got {X.shape}")
         per_tree = np.stack([t.predict(X) for t in self.forest.estimators_])
         return per_tree.mean(0), per_tree.std(0, ddof=0)
 
@@ -50,4 +69,5 @@ def load_model(directory: str | Path) -> AffinityModel:
         forest=load(directory / "forest.joblib"),
         feature_names=meta["feature_names"],
         metrics=meta["metrics"],
+        fingerprint_bits=int(meta.get("fingerprint_bits", 0)),
     )

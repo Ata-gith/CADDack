@@ -34,7 +34,11 @@ from caddack.docking.scoring import (  # noqa: E402
     contact_features,
     vina_terms,
 )
-from caddack.qsar.descriptors import mol_to_basic_features, smiles_to_mol_clean  # noqa: E402
+from caddack.qsar.descriptors import (  # noqa: E402
+    mol_to_basic_features,
+    mol_to_ecfp_array,
+    smiles_to_mol_clean,
+)
 
 Z_SYMBOL = {1: "H", 5: "B", 6: "C", 7: "N", 8: "O", 9: "F", 11: "Na", 12: "Mg",
             15: "P", 16: "S", 17: "Cl", 19: "K", 20: "Ca", 25: "Mn", 26: "Fe",
@@ -64,18 +68,21 @@ def write_pdbqt(atomic_nums, positions) -> str:
     return "\n".join(lines) + "\nTER\n"
 
 
-def python_features(z, pos, n_ligand, smiles):
+def python_features(z, pos, n_ligand, smiles, fp_bits):
     mol = smiles_to_mol_clean(smiles)
     desc = mol_to_basic_features(mol)
     terms = vina_terms(z, pos, n_ligand=n_ligand)
     contacts = contact_features(z, pos, n_ligand=n_ligand)
-    return np.concatenate([
+    blocks = [
         [desc[k] for k in ("MolWt", "LogP", "TPSA", "NumHBD", "NumHBA", "NumRotBonds")],
         [mol.GetNumAtoms()],
         [terms[k] for k in TERM_NAMES],
         [terms["vina_inter"]],
         contacts,
-    ]), desc
+    ]
+    if fp_bits:
+        blocks.append(np.unpackbits(mol_to_ecfp_array(mol, radius=2, n_bits=fp_bits)))
+    return np.concatenate(blocks), desc
 
 
 def main(argv=None) -> int:
@@ -84,7 +91,18 @@ def main(argv=None) -> int:
     ap.add_argument("--data-dir", type=Path, required=True)
     ap.add_argument("--n-cases", type=int, default=6)
     ap.add_argument("--tolerance", type=float, default=1e-6)
+    ap.add_argument("--fingerprint-bits", type=int, default=None,
+                    help="ECFP4 bits to check. Defaults to whatever "
+                         "docs/affinity.json says the shipped model uses, so "
+                         "the check follows the model rather than a constant.")
     args = ap.parse_args(argv)
+
+    fp_bits = args.fingerprint_bits
+    if fp_bits is None:
+        bundle = json.loads((REPO_ROOT / "docs" / "affinity.json").read_text())
+        fp_bits = int(bundle.get("fingerprint_bits", 0))
+    print(f"  checking {fp_bits} fingerprint bits "
+          f"({'from docs/affinity.json' if args.fingerprint_bits is None else 'requested'})")
 
     with open(args.data_dir / "pdbbind_examples.pkl", "rb") as fh:
         examples = [e for e in pickle.load(fh) if getattr(e, "is_refined", True)]
@@ -98,18 +116,19 @@ def main(argv=None) -> int:
         z = list(ex.geo.atomic_nums)
         pos = [tuple(p) for p in ex.geo.positions]
         n_lig = ex.geo.n_ligand
-        vec, desc = python_features(z, pos, n_lig, ex.ligand_smiles)
+        vec, desc = python_features(z, pos, n_lig, ex.ligand_smiles, fp_bits)
         cases.append({
             "id": ex.pdb_id,
             "ligand": write_pdbqt(z[:n_lig], pos[:n_lig]),
             "receptor": write_pdbqt(z[n_lig:], pos[n_lig:]),
             "descriptors": {k: float(desc[k]) for k in
                             ("MolWt", "LogP", "TPSA", "NumHBD", "NumHBA", "NumRotBonds")},
+            "smiles": ex.ligand_smiles,
         })
         expected.append(vec)
 
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
-        json.dump({"cases": cases}, fh)
+        json.dump({"cases": cases, "fp_bits": fp_bits}, fh)
         fixtures = fh.name
 
     proc = subprocess.run(
@@ -120,13 +139,15 @@ def main(argv=None) -> int:
         return 1
     got = json.loads(proc.stdout)["results"]
 
-    names = feature_names()
+    names = feature_names(fp_bits)
     groups = {
         "descriptors (6)": range(0, 6),
         "ligand atom count": range(6, 7),
         "vina terms (6)": range(7, 13),
-        "contact counts (100)": range(13, len(names)),
+        "contact counts (100)": range(13, 113),
     }
+    if fp_bits:
+        groups[f"ECFP4 bits ({fp_bits})"] = range(113, 113 + fp_bits)
     print(f"  {len(got)} complexes, {len(names)} features each\n")
     print(f"  {'group':<24}{'largest |python - browser|':>28}")
     worst_overall = 0.0

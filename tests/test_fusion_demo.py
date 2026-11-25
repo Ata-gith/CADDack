@@ -279,3 +279,54 @@ def test_viewer_pocket_colour_is_actually_grey():
     # Must separate from both panel backgrounds: #fff light, #1c1c22 dark.
     assert 90 < (r + g + b) / 3 < 190, (
         f"#{match.group(1)} will not read against both the light and dark panel")
+
+
+def test_shipped_bundle_declares_its_fingerprint_width():
+    """The browser builds its own feature vector, so it has to be told how many
+    fingerprint bits to append. Without this field it would send 113 columns to
+    a 1137-column forest, which decodeForest cannot detect: the trees would just
+    read whatever happened to be at each index."""
+    bundle = json.loads((BUNDLE.parent / "affinity.json").read_text())
+    bits = bundle.get("fingerprint_bits")
+    assert bits is not None, "affinity.json must declare fingerprint_bits"
+    names = bundle["feature_names"]
+    assert len(names) == 113 + bits, (
+        f"{len(names)} feature names but 113 structural + {bits} fingerprint")
+    if bits:
+        assert names[113] == "ECFP4_0" and names[-1] == f"ECFP4_{bits - 1}"
+        assert names[112].startswith("contact_"), (
+            "the fingerprint block must come after the contact counts, since "
+            "that is the order the browser assembles")
+
+
+def test_browser_builds_the_fingerprint_through_the_shared_helper():
+    """The page and scripts/check_browser_features.py must run the same code, or
+    the parity check verifies something the page does not do."""
+    dock = (BUNDLE.parent / "dock.js").read_text()
+    page = (BUNDLE.parent / "fusion.js").read_text()
+
+    assert "function ligandFeatures(" in dock
+    assert "function stripSalts(" in dock
+    exported = dock[dock.index("window.CADDackDock"):]
+    assert "ligandFeatures" in exported, (
+        "ligandFeatures must be on the window.CADDackDock export, or the page "
+        "and the parity harness cannot reach it")
+    assert "CADDackDock.ligandFeatures(" in page, (
+        "the page must use the shared helper, not its own copy")
+    # useChirality, not the Python spelling: RDKit.js ignores includeChirality
+    # without complaint, which once made stereoisomers fingerprint identically.
+    assert "useChirality: true" in dock
+    assert "includeChirality: true" not in dock
+
+
+def test_missing_smiles_is_refused_when_the_model_needs_one():
+    """Zeroing six of 113 columns left the interaction features carrying the
+    prediction. Zeroing 1030 of 1137 does not, so the page must refuse rather
+    than print a number built almost entirely from placeholders."""
+    page = (BUNDLE.parent / "fusion.js").read_text()
+    body = page[page.index("function scorePose"):]
+    body = body[:body.index("\n}")]
+    assert "fpBits()" in body, "the page must branch on whether a fingerprint is needed"
+    guard = body[body.index("const approximate"):]
+    assert "return show(" in guard, (
+        "with a fingerprint model and no SMILES the page must stop, not guess")

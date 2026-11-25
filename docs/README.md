@@ -5,7 +5,7 @@ Two static pages, live at **https://ata-gith.github.io/CADDack/**.
 | Page | Model | Runs where |
 |---|---|---|
 | `index.html` | Tanimoto search over 902 ECFP4 fingerprints, plus a RandomForest solubility estimate | **live in the browser** |
-| `fusion.html` | Random forest on 115 interaction features, with the two-tower network alongside | precomputed |
+| `fusion.html` | Random forest on 1,137 features, with the two-tower network alongside | precomputed |
 
 The similarity page takes any SMILES, fingerprints it and searches the reference
 set live. The affinity page cannot run its model in the browser:
@@ -140,6 +140,40 @@ the same split.
 The consistent pattern: **describing atom pairs beats describing atoms**. The
 learned encoders are given atoms and have to infer pairwise structure from 2,959
 examples. Handing it to them directly works; expecting them to find it does not.
+
+### Adding the similarity page's fingerprints
+
+The contact counts describe the interface but throw away *which ligand made it*:
+two unrelated scaffolds producing the same contact pattern are indistinguishable.
+The similarity demo's representation supplies exactly what is missing — 1024
+ECFP4 bits of ligand identity. Five scaffold splits, 300 trees:
+
+| features | Pearson *r* | MAE |
+|---|---|---|
+| 113 structural (contacts, Vina, descriptors) | 0.686 ± 0.019 | 1.077 ± 0.025 |
+| 1024 fingerprint bits alone | 0.524 ± 0.025 | 1.262 ± 0.023 |
+| **both, 1,137** | **0.704 ± 0.019** | **1.057 ± 0.024** |
+
++0.019 in *r*, positive on 5/5 splits, paired *t* = 5.31, *p* = 0.006. The bits
+are much worse alone, so they are complementary rather than redundant. The
+browser copy gains the same amount (+0.016 ± 0.008, 5/5, *p* = 0.011), and the
+exported bundle got slightly *smaller* — 73,100 nodes against 75,518 — because
+the trees find cleaner splits, not because anything was truncated.
+
+**One trap worth recording.** The gain needs every column available at each
+split. With `max_features="sqrt"`, 34 of 1,137 columns are sampled and rarely
+include the informative contacts; the gain vanishes entirely (−0.001 ± 0.004,
+2/5 splits). sklearn's regression default is all features, so this works by
+default — but it is the kind of thing that silently disappears under a tuning
+sweep.
+
+**What this is not.** A page scoring the same molecule for *both* affinity and
+solubility was the obvious version of "combine the two demos", and it does not
+work: PDBbind ligands have median MW 351 against ESOL's 163, and **83.4% fall
+outside the solubility model's applicability domain** (median nearest-ESOL
+Tanimoto 0.231 against a 0.321 threshold). That page would print a confident
+solubility number for five ligands in six with no basis for one. What combines
+is the representation, not the predictions.
 
 ### Given the same features, the forest still wins
 
@@ -379,14 +413,23 @@ compression is revisited.
 
 The affinity page takes a receptor and a docked ligand as PDBQT and scores them
 client-side. This is possible because the shipped model is a forest: `docs/dock.js`
-parses the files, rebuilds the 113 features and walks the trees, the same route
+parses the files, rebuilds all 1,137 features and walks the trees, the same route
 the similarity page uses. The graph network could not be served this way at all —
 its topology is constructed inside the forward pass — which is part of why the
 forest is what ships.
 
-107 of the 113 features come from coordinates alone. The six ligand descriptors
-need bonding, which PDBQT does not record, so a SMILES is asked for; without one
-they are zeroed and the prediction is flagged as indicative.
+107 features come from coordinates alone. The six ligand descriptors and the 1024
+fingerprint bits need bonding, which PDBQT does not record, so the ligand SMILES
+is required. It used to be optional, with the six descriptors zeroed and the
+result flagged as indicative; that was defensible when it meant 6 placeholder
+columns out of 113, and is not when it means 1,030 out of 1,137. The page now
+refuses rather than printing a number built mostly from zeros.
+
+Both pages take the SMILES through the same `stripSalts` + `ligandFeatures`
+helper in `dock.js`, so the parity script exercises the code the page runs. The
+affinity page previously skipped salt stripping while Python always did it — a
+latent disagreement on any multi-fragment SMILES that the fingerprint would have
+turned from 6 wrong columns into 1,030.
 
 **The JavaScript is checked against Python, not assumed to agree.**
 

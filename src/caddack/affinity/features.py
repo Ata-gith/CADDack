@@ -1,18 +1,29 @@
 """Features for protein-ligand affinity prediction.
 
-One vector per complex, assembled from three sources:
+One vector per complex, assembled from:
 
 * six physicochemical descriptors of the ligand,
-* three size counts (ligand atoms, pocket atoms, their ratio),
+* the ligand's heavy-atom count,
 * Vina's six interaction terms,
-* one hundred contact counts, split by element-class pair and distance shell.
+* one hundred contact counts, split by element-class pair and distance shell,
+* optionally, ECFP4 fingerprint bits describing the ligand alone.
 
-The last two describe atom *pairs* across the interface, and that is what makes
-the set work. A two-tower graph network given only atoms reached r 0.644 on a
-PDBbind scaffold split; a random forest on these 115 numbers reaches 0.696 on the
-same split, and the network did not catch up when handed the same features. The
-pairwise structure appears to be the thing worth supplying rather than hoping a
-network discovers it from a few thousand examples.
+The contact counts and Vina terms describe atom *pairs* across the interface,
+and that is what makes the set work. A two-tower graph network given only atoms
+reached r 0.644 on a PDBbind scaffold split; a random forest on the 113
+structural numbers reaches 0.696 on the same split, and the network did not
+catch up when handed the same features. The pairwise structure appears to be the
+thing worth supplying rather than hoping a network discovers it from a few
+thousand examples.
+
+The fingerprint is the complement to that. Contact counts say what the interface
+looks like but discard which molecule made it, so two unrelated scaffolds
+producing the same contact pattern are indistinguishable. Adding 1024 bits lifts
+r from 0.686 to 0.704 over five scaffold splits (paired t = 5.3, p = 0.006),
+while the bits alone reach only 0.524 -- they are complementary rather than
+redundant. Note that this gain needs every feature available at each split:
+``max_features="sqrt"`` samples 34 of 1137 columns, which rarely includes the
+informative contacts, and the gain disappears entirely (-0.001 +- 0.004).
 """
 from __future__ import annotations
 
@@ -42,12 +53,25 @@ SIZE_NAMES = ("n_ligand_atoms",)
 DEFAULT_CUTOFF = 8.0
 
 
-def feature_names() -> list[str]:
-    return [*DESCRIPTOR_NAMES, *SIZE_NAMES, *TERM_NAMES, "vina_inter",
-            *contact_feature_names()]
+# ECFP radius 2, which is ECFP*4* -- the number in the name is the diameter.
+FP_RADIUS = 2
+DEFAULT_FP_BITS = 1024
 
 
-FEATURE_DIM = len(DESCRIPTOR_NAMES) + len(SIZE_NAMES) + len(TERM_NAMES) + 1 + CONTACT_FEAT_DIM
+def feature_names(fp_bits: int = 0) -> list[str]:
+    names = [*DESCRIPTOR_NAMES, *SIZE_NAMES, *TERM_NAMES, "vina_inter",
+             *contact_feature_names()]
+    names += [f"ECFP4_{i}" for i in range(fp_bits)]
+    return names
+
+
+STRUCTURAL_DIM = (len(DESCRIPTOR_NAMES) + len(SIZE_NAMES) + len(TERM_NAMES)
+                  + 1 + CONTACT_FEAT_DIM)
+FEATURE_DIM = STRUCTURAL_DIM
+
+
+def feature_dim(fp_bits: int = 0) -> int:
+    return STRUCTURAL_DIM + fp_bits
 
 
 def features_from_atoms(
@@ -55,13 +79,25 @@ def features_from_atoms(
     positions: Sequence[tuple[float, float, float]],
     n_ligand: int,
     smiles: str,
+    fp_bits: int = 0,
 ) -> np.ndarray | None:
     """Build the feature vector from coordinates plus the ligand's SMILES.
 
     Ligand atoms come first in ``atomic_nums`` and ``positions``. Returns None if
     the SMILES cannot be parsed, since the descriptors come from it.
+
+    ``fp_bits`` appends that many ECFP4 bits describing the ligand alone. The
+    contact counts say what the interface looks like but discard which molecule
+    made it, so two unrelated scaffolds producing the same contact pattern are
+    indistinguishable without them. Adding 1024 bits lifts r from 0.686 to 0.704
+    over five scaffold splits (paired t = 5.3, p = 0.006). Zero keeps the
+    structural features alone, which is what earlier models shipped.
     """
-    from caddack.qsar.descriptors import mol_to_basic_features, smiles_to_mol_clean
+    from caddack.qsar.descriptors import (
+        mol_to_basic_features,
+        mol_to_ecfp_array,
+        smiles_to_mol_clean,
+    )
 
     mol = smiles_to_mol_clean(smiles) if smiles else None
     if mol is None:
@@ -93,19 +129,28 @@ def features_from_atoms(
     terms = vina_terms(atomic_nums, positions, n_ligand=n_ligand)
     contacts = contact_features(atomic_nums, positions, n_ligand=n_ligand)
 
-    return np.concatenate([
+    blocks = [
         [desc[k] for k in DESCRIPTOR_NAMES],
         [n_lig_heavy],
         [terms[k] for k in TERM_NAMES],
         [terms["vina_inter"]],
         contacts,
-    ]).astype(np.float64)
+    ]
+    if fp_bits:
+        # From the same cleaned molecule the descriptors came from, so the salt
+        # stripping that mol_to_basic_features saw is the stripping the
+        # fingerprint sees. The browser strips salts separately before
+        # fingerprinting for exactly this reason.
+        blocks.append(np.unpackbits(
+            mol_to_ecfp_array(mol, radius=FP_RADIUS, n_bits=fp_bits)))
+    return np.concatenate(blocks).astype(np.float64)
 
 
 def features_from_files(
     pocket_pdb: str | Path,
     ligand_file: str | Path,
     cutoff: float = DEFAULT_CUTOFF,
+    fp_bits: int = 0,
 ) -> np.ndarray | None:
     """Build the feature vector straight from a pocket PDB and a ligand file.
 
@@ -146,4 +191,5 @@ def features_from_files(
         np.vstack([lig_pos, pro_pos[near]]),
         n_ligand=len(lig_z),
         smiles=Chem.MolToSmiles(mol),
+        fp_bits=fp_bits,
     )
