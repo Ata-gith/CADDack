@@ -14,6 +14,7 @@ nothing would look wrong.
 """
 import json
 import math
+import re
 from pathlib import Path
 
 import pytest
@@ -178,7 +179,60 @@ def test_out_of_domain_ligands_really_are_harder(data):
     assert sum(outside) / len(outside) > sum(inside) / len(inside)
 
 
-def test_page_compares_the_signals_rather_than_quoting_one():
+def test_page_shows_the_signal_that_works_and_not_the_one_that_does_not():
+    """The page used to chart five uncertainty signals against each other. Four
+    of them are indistinguishable from noise and the epistemic row is negative
+    on every seed, so ranking them invited a conclusion the numbers do not
+    support. Only the applicability-domain split is drawn now, and it still has
+    to be computed from the bundle rather than written in by hand."""
     page = (BUNDLE.parent / "fusion.js").read_text()
-    assert "rankAverage" in page
-    assert "spearman" in page
+    assert "spearman" in page, "rho is quoted, so it must still be computed"
+    assert "ad_sim" in page, "the domain split must come from the bundle"
+    assert "rankAverage" not in page, (
+        "rankAverage is the dropped five-signal chart; it should not have returned")
+    body = page[page.index("function drawNetworkUncertainty"):]
+    body = body[:body.index("\n}")]
+    assert "r.epi" not in body and "r.ale" not in body, (
+        "the epistemic and aleatoric terms are no longer charted")
+
+
+def test_viewer_draws_the_pocket_and_frames_it():
+    """The pocket was styled with 3Dmol's `line`, which renders bonds only and at
+    one pixel wide. Pocket atoms whose neighbours fell outside the 6 A cut had no
+    bond left to draw and vanished; the rest were hairlines. The viewer also
+    zoomed to the ligand alone, pushing what did render off-screen. Both made the
+    panel look like it showed the ligand by itself."""
+    page = (BUNDLE.parent / "fusion.js").read_text()
+    body = page[page.index("function showStructure"):]
+    body = body[:body.index("\n}")]
+
+    assert "line:" not in body, (
+        "`line` draws bonds only, so pocket atoms cut off from their neighbours "
+        "render as nothing")
+    # Every atom gets a sphere, so an atom with no bond is still drawn.
+    assert body.count("sphere:") >= 2, (
+        "both the pocket and the ligand need a per-atom sphere")
+    assert "zoomTo()" in body, "the whole complex must be framed, not just the ligand"
+    assert "zoomTo(ligand)" not in body
+
+
+def test_viewer_pocket_colour_is_actually_grey():
+    """The caption reads "grey = pocket". greyCarbon greys only the carbons and
+    leaves N blue and O red, so the pocket read as stray coloured specks."""
+    page = (BUNDLE.parent / "fusion.js").read_text()
+    html = (BUNDLE.parent / "fusion.html").read_text()
+    assert "grey = pocket" in html
+    body = page[page.index("function showStructure"):]
+    body = body[:body.index("\n}")]
+    # Strip comments: the code explains why greyCarbon was wrong, and that
+    # explanation must not trip a check aimed at the style it describes.
+    code = re.sub(r"//.*", "", body)
+    assert "POCKET_GREY" in code
+    assert 'colorscheme: "greyCarbon"' not in code
+    match = re.search(r'POCKET_GREY\s*=\s*"#([0-9a-fA-F]{6})"', page)
+    assert match, "POCKET_GREY must be a literal hex colour"
+    r, g, b = (int(match.group(1)[i:i + 2], 16) for i in (0, 2, 4))
+    assert max(r, g, b) - min(r, g, b) <= 24, f"#{match.group(1)} is not grey"
+    # Must separate from both panel backgrounds: #fff light, #1c1c22 dark.
+    assert 90 < (r + g + b) / 3 < 190, (
+        f"#{match.group(1)} will not read against both the light and dark panel")

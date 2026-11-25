@@ -19,6 +19,9 @@ let F = null;          // forest bundle
 let N = null;          // network bundle
 let byId = {};         // pdb id -> { forest, network }
 let viewer = null;
+// Mid-grey chosen to read against both the light panel (#fff) and the dark one
+// (#1c1c22); the viewer is transparent, so it sits on whichever is active.
+const POCKET_GREY = "#8c929c";
 
 const $ = (id) => document.getElementById(id);
 const absErr = (p, m) => Math.abs(p - m);
@@ -171,11 +174,20 @@ function showStructure(s) {
   });
   viewer.addModel(lines.join("\n"), "xyz");
   const ligand = { index: Array.from({ length: s.n_ligand }, (_, i) => i) };
-  viewer.setStyle({}, { line: { colorscheme: "greyCarbon", opacity: 0.55 } });
+  // The pocket was drawn with `line`, which renders bonds only and at one pixel
+  // wide: pocket atoms whose neighbours fell outside the 6 A cut have no bond to
+  // draw and disappeared entirely, and the rest were hairlines invisible against
+  // the panel. Thin sticks plus a small sphere per atom show every atom whether
+  // or not it kept a bond. One flat mid-grey, readable on both themes, so the
+  // caption's "grey = pocket" is true -- greyCarbon still colours N blue and O
+  // red, which is what made the pocket look like stray coloured specks.
+  viewer.setStyle({}, { stick: { radius: 0.07, color: POCKET_GREY },
+                        sphere: { radius: 0.13, color: POCKET_GREY } });
   viewer.setStyle(ligand, { stick: { radius: 0.21, colorscheme: "cyanCarbon" },
                             sphere: { radius: 0.34, colorscheme: "cyanCarbon" } });
-  viewer.zoomTo(ligand);
-  viewer.zoom(0.75);
+  // Frame the whole complex, not just the ligand, or the pocket sits off-screen.
+  viewer.zoomTo();
+  viewer.zoom(1.1);
   viewer.render();
 }
 
@@ -275,67 +287,48 @@ function spearman(xs, ys) {
   return num / Math.sqrt(dx * dy);
 }
 
-function rankAverage(a, b) {
-  const ranks = (xs) => {
-    const idx = xs.map((v, i) => [v, i]).sort((p, q) => p[0] - q[0]);
-    const r = new Array(xs.length);
-    idx.forEach(([, i], k) => { r[i] = k; });
-    return r;
-  };
-  const ra = ranks(a), rb = ranks(b);
-  return ra.map((v, i) => v + rb[i]);
-}
 
 function drawNetworkUncertainty() {
   const rows = N.complexes.filter((r) => r.ad_sim !== null && r.ad_sim !== undefined);
   if (!rows.length) { $("uncertaintyPanel").hidden = true; return; }
 
   const err = rows.map((r) => absErr(r.pred, r.measured));
-  const epi = rows.map((r) => r.epi);
-  const ale = rows.map((r) => r.ale);
-  const total = rows.map((r) => Math.hypot(r.epi, r.ale));
   const adDist = rows.map((r) => 1 - r.ad_sim);
-  const combined = rankAverage(total, adDist);
 
-  const signals = [
-    ["epistemic σ — the model's own doubt", spearman(epi, err)],
-    ["aleatoric σ — predicted noise", spearman(ale, err)],
-    ["both, as the model reports them", spearman(total, err)],
-    ["similarity to the training ligands", spearman(adDist, err)],
-    ["the last two, rank-averaged", spearman(combined, err)],
-  ];
-  const best = Math.max(...signals.map(([, v]) => Math.abs(v)));
-
-  $("signals").innerHTML = signals.map(([label, rho]) => `
-    <div class="sigrow">
-      <span class="siglabel">${label}</span>
-      <span class="sigbar"><i class="${rho < 0 ? "neg" : ""}" style="width:${((Math.abs(rho) / best) * 100).toFixed(0)}%"></i></span>
-      <span class="sigval">${rho >= 0 ? "+" : ""}${rho.toFixed(3)}</span>
-    </div>`).join("");
-
-  const m = N.metrics;
-  const epiRho = spearman(epi, err);
+  // Only the training-distance signal is shown. The epistemic, aleatoric and
+  // combined rows used to sit here too, but the epistemic one is negative across
+  // every seed and the other two are inside noise of each other, so the chart
+  // invited readers to rank five numbers that are not distinguishable. The prose
+  // above says what was dropped and why.
   const adRho = spearman(adDist, err);
-  const combRho = spearman(combined, err);
   const t = N.ad ? N.ad.threshold : 0;
   const outside = rows.filter((r) => r.ad_sim < t);
   const inside = rows.filter((r) => r.ad_sim >= t);
   const mae = (a) => a.reduce((s, r) => s + absErr(r.pred, r.measured), 0) / Math.max(a.length, 1);
+  const worst = Math.max(mae(outside), mae(inside)) || 1;
 
+  const band = (label, group, cls) => `
+    <div class="sigrow">
+      <span class="siglabel">${label}<br><small>${group.length} complexes</small></span>
+      <span class="sigbar"><i class="${cls}" style="width:${((mae(group) / worst) * 100).toFixed(0)}%"></i></span>
+      <span class="sigval">${mae(group).toFixed(2)} pK</span>
+    </div>`;
+  $("signals").innerHTML =
+    band("Nearest training ligand is similar", inside, "") +
+    band("Nothing similar in training", outside, "neg");
+
+  const m = N.metrics;
   $("uncertaintyVerdict").innerHTML =
-    `<strong>The error bars are the right width but the wrong shape.</strong>
+    `Complexes with no close training analogue are wrong by
+     ${(mae(outside) - mae(inside)).toFixed(2)} pK more on average. Ranking every
+     complex this way gives ρ&nbsp;=&nbsp;${adRho.toFixed(2)} against the errors
+     actually made — a real signal, and a weak one.
+     <br><br>
+     <strong>The error bars are the right width but the wrong shape.</strong>
      ${(m.coverage_1sigma * 100).toFixed(0)}% of measurements land inside 1σ and
      ${(m.coverage_2sigma * 100).toFixed(0)}% inside 2σ, against 68% and 95% ideal.
-     Yet the rank correlation between stated uncertainty and actual error is
-     ρ&nbsp;=&nbsp;${spearman(total, err).toFixed(2)}, and the epistemic half alone
-     is ${epiRho.toFixed(3)}.
-     <br><br>
-     Ligand similarity to the training set, which uses no model at all, scores
-     ${adRho.toFixed(3)}. The ${outside.length} complexes below its threshold average
-     ${mae(outside).toFixed(2)} pK of error against ${mae(inside).toFixed(2)} above it.
-     A Bayesian posterior, dropout sampling and a five-model ensemble were each tried;
-     none beat that lookup. Repeating the measurement moves every row by about ±0.02,
-     so the middle three are tied.`;
+     So the average spread is about right, while which particular predictions get
+     the wide bars is close to arbitrary.`;
 }
 
 // --- scoring an uploaded pose ------------------------------------------------

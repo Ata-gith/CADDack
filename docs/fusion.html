@@ -229,6 +229,19 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
     <p class="body">All computed on 740 complexes held out of training.</p>
 
     <dl class="defs metrics">
+      <dt>pK <span class="unit">the thing being predicted</span></dt>
+      <dd>Binding strength is measured as a <strong>dissociation constant</strong>
+      <i>K</i><sub>d</sub>: the concentration of drug at which half the protein's binding
+      sites are occupied. A tight binder works at low concentration, so smaller means
+      better, and real values run from millimolar down to picomolar — nine orders of
+      magnitude. Taking the negative base-10 logarithm turns that into a comfortable
+      linear scale: <span class="eq">pK = &minus;log<sub>10</sub> <i>K</i><sub>d</sub></span>,
+      with <i>K</i><sub>d</sub> in moles per litre. Now <strong>bigger means
+      tighter</strong>, and <strong>each +1 is a tenfold improvement</strong>. 1 mM is pK 3,
+      1 µM is pK 6, 1 nM is pK 9. This dataset runs from about 2 to 12 and averages 6.3;
+      a marketed drug is usually 8 or better. The same arithmetic applies to the errors:
+      being off by 1.0 pK means being wrong about the concentration by a factor of 10.</dd>
+
       <dt>MAE <span class="unit">pK, lower better</span></dt>
       <dd>Average size of a miss. 1.07 means the typical prediction is off by a factor of
       about 12 in binding strength. Predicting the training mean scores 1.59.</dd>
@@ -407,35 +420,28 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
   <section class="panel" id="uncertaintyPanel">
     <h2>The network's uncertainty</h2>
-    <p class="body">The network splits its uncertainty in two. The <strong>epistemic</strong>
-    part is the disagreement between its thirty weight samples: scatter means the training
-    data did not pin this prediction down, and more data should shrink it. The
-    <strong>aleatoric</strong> part is a separate output trained to predict measurement
-    noise, since these affinities come from different laboratories and the same complex
-    measured twice can differ by about 0.5 pK. They combine as
-    <span class="eq">sigma = sqrt(epistemic&sup2; + aleatoric&sup2;)</span>.</p>
+    <p class="body">Two numbers make up the error bar. The <strong>epistemic</strong> part
+    is the scatter across thirty weight samples, which should grow where training data was
+    thin. The <strong>aleatoric</strong> part is a learned estimate of measurement noise;
+    the same complex measured in two laboratories can differ by 0.5&nbsp;pK. They combine
+    as <span class="eq">sigma = sqrt(epistemic&sup2; + aleatoric&sup2;)</span>.</p>
 
-    <p class="body">The epistemic term does not work. It ranks errors at <i>rho</i>
-    &minus;0.08 &plusmn; 0.04 over five training runs: no useful signal, and the sign is the
-    wrong one. The suspected cause was that only the head is sampled, so every draw reuses one
-    fixed representation and an unfamiliar complex arrives looking ordinary. That was
-    tested directly. Giving both towers Gaussian weights too, which takes the sampled
-    share of the weights from 21% to 97%, left <i>rho</i> at &minus;0.07 &plusmn; 0.05
-    and changed nothing. It cost twice the parameters, so it is off by default.</p>
+    <p class="body"><strong>The epistemic part does not work.</strong> It ranks errors at
+    <i>rho</i> &minus;0.08 &plusmn; 0.04 across five training runs: no signal, and the
+    wrong sign. The obvious suspect was that only the head is sampled, leaving every draw
+    to reuse one fixed representation. Sampling both towers as well, which lifts the
+    stochastic share of the weights from 21% to 97%, left <i>rho</i> at
+    &minus;0.07 &plusmn; 0.05.</p>
 
-    <p class="body">The reason is that weight noise is isotropic. Sampling a Gaussian
-    weight matrix spreads the output in proportion to the size of the input vector, not to
-    how far that input sits from anything seen in training, and nothing in the objective
-    rewards a wider posterior where data is absent. The method answers how tightly the
-    training set pinned the weights down; it was never built to answer whether this
-    particular complex resembles the training set.</p>
+    <p class="body">The obstacle is structural. Gaussian weight noise spreads the output
+    in proportion to the input's size, not its distance from the training data, and
+    nothing in the objective widens the posterior where data is absent. It measures how
+    tightly training pinned the weights down, not whether this complex is familiar.</p>
 
-    <p class="body">The signal that does point the right way uses no weights at all: the
-    Tanimoto distance from the test ligand to its nearest training ligand, at <i>rho</i>
-    +0.05 &plusmn; 0.04 over all ten runs. Weak, and still the better of the two.</p>
+    <p class="body">So neither term is shown. What is shown uses no weights at all: the
+    <strong>Tanimoto distance</strong> from each test ligand to its nearest training
+    ligand, the fraction of structural fingerprint bits the two fail to share.</p>
 
-    <p class="body">Each signal is ranked against the error it was computed alongside.
-    Higher is better; red points the wrong way.</p>
     <div id="signals"></div>
     <p class="body" id="uncertaintyVerdict" style="margin-top:16px"></p>
   </section>

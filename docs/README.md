@@ -189,8 +189,15 @@ was fixed it does not rank errors. And **`SimilarityAD`, which ignores the model
 entirely**, does better than anything the model reports about itself: the 195 test
 ligands outside the domain average 1.38 pK of error against 1.18 for those inside.
 
-Averaging their ranks beats either alone, and that combination is what the page
-shows. It is still modest, and the better half of it needs no neural network.
+Averaging their ranks beats either alone. It is still modest, and the better half
+of it needs no neural network.
+
+**What the page shows.** Only the applicability-domain split. The five-row chart
+that used to sit here invited readers to rank numbers that are not distinguishable
+— the middle three are within noise of each other, and the epistemic row is
+negative — so the page now shows the one signal that points the right way, as the
+mean error of the complexes inside and outside the domain. The prose above it says
+which terms were dropped and why.
 
 **How stable are these?** The uncertainty estimate is stochastic, so the
 comparison was repeated over eight independent Monte Carlo passes of the same
