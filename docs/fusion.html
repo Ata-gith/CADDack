@@ -419,31 +419,34 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
   </section>
 
   <section class="panel" id="uncertaintyPanel">
-    <h2>The network's uncertainty</h2>
-    <p class="body">Two numbers make up the error bar. The <strong>epistemic</strong> part
-    is the scatter across thirty weight samples, which should grow where training data was
-    thin. The <strong>aleatoric</strong> part is a learned estimate of measurement noise;
-    the same complex measured in two laboratories can differ by 0.5&nbsp;pK. They combine
-    as <span class="eq">sigma = sqrt(epistemic&sup2; + aleatoric&sup2;)</span>.</p>
+    <h2>The forest's uncertainty</h2>
+    <p class="body">Every prediction carries a spread. The forest's 300 trees each see a
+    different bootstrap sample of the training complexes and a different subset of
+    features at each branch, so they disagree; the standard deviation across their 300
+    answers is the spread. Nothing trains it — it is a by-product of how the forest is
+    built.</p>
 
-    <p class="body"><strong>The epistemic part does not work.</strong> It ranks errors at
-    <i>rho</i> &minus;0.08 &plusmn; 0.04 across five training runs: no signal, and the
-    wrong sign. The obvious suspect was that only the head is sampled, leaving every draw
-    to reuse one fixed representation. Sampling both towers as well, which lifts the
-    stochastic share of the weights from 21% to 97%, left <i>rho</i> at
-    &minus;0.07 &plusmn; 0.05.</p>
-
-    <p class="body">The obstacle is structural. Gaussian weight noise spreads the output
-    in proportion to the input's size, not its distance from the training data, and
-    nothing in the objective widens the posterior where data is absent. It measures how
-    tightly training pinned the weights down, not whether this complex is familiar.</p>
-
-    <p class="body">So neither term is shown. What is shown uses no weights at all: the
-    <strong>Tanimoto distance</strong> from each test ligand to its nearest training
-    ligand, the fraction of structural fingerprint bits the two fail to share.</p>
+    <p class="body">Two things could warn that a prediction is unreliable: that
+    disagreement, and the <strong>Tanimoto distance</strong> from the ligand to the
+    nearest one in training, meaning the fraction of structural fingerprint bits the two
+    fail to share. Ranked against the errors actually made:</p>
 
     <div id="signals"></div>
     <p class="body" id="uncertaintyVerdict" style="margin-top:16px"></p>
+
+    <dl class="defs">
+      <dt>The network's Bayesian version of this does not work</dt>
+      <dd>The network holds a Gaussian distribution over its head weights and reports the
+      scatter across thirty samples as <em>epistemic</em> uncertainty. That term ranks
+      errors at <i>rho</i> &minus;0.08 &plusmn; 0.04 across five training runs: no signal,
+      and the wrong sign. Sampling both towers as well, which lifts the stochastic share
+      of the weights from 21% to 97%, left it at &minus;0.07 &plusmn; 0.05. Gaussian
+      weight noise spreads a prediction in proportion to the size of its input, not to how
+      far that input sits from the training data, and nothing in the objective widens the
+      posterior where data is absent. The forest needs no such machinery: its trees
+      disagree because they genuinely saw different data, and they disagree most where
+      there was least of it.</dd>
+    </dl>
   </section>
 
   <section class="panel">

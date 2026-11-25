@@ -179,21 +179,64 @@ def test_out_of_domain_ligands_really_are_harder(data):
     assert sum(outside) / len(outside) > sum(inside) / len(inside)
 
 
-def test_page_shows_the_signal_that_works_and_not_the_one_that_does_not():
-    """The page used to chart five uncertainty signals against each other. Four
-    of them are indistinguishable from noise and the epistemic row is negative
-    on every seed, so ranking them invited a conclusion the numbers do not
-    support. Only the applicability-domain split is drawn now, and it still has
-    to be computed from the bundle rather than written in by hand."""
+def test_uncertainty_panel_describes_the_shipped_model():
+    """The forest is what the page ships, so the panel is about the forest. It
+    used to chart five of the network's signals against each other, four of them
+    indistinguishable from noise. The two it draws now must be computed from the
+    bundles rather than written in by hand."""
     page = (BUNDLE.parent / "fusion.js").read_text()
-    assert "spearman" in page, "rho is quoted, so it must still be computed"
-    assert "ad_sim" in page, "the domain split must come from the bundle"
-    assert "rankAverage" not in page, (
-        "rankAverage is the dropped five-signal chart; it should not have returned")
-    body = page[page.index("function drawNetworkUncertainty"):]
+    body = page[page.index("function drawForestUncertainty"):]
     body = body[:body.index("\n}")]
+
+    assert "F.complexes" in body, "the panel must read the forest's predictions"
+    assert "f.spread" in body, "the tree spread is the forest's own signal"
+    assert "ad_sim" in body, "the domain distance must come from the bundle"
+    assert "spearman" in body, "rho is quoted, so it must be computed"
+    assert "rankAverage" not in page, "the dropped five-signal chart should stay dropped"
     assert "r.epi" not in body and "r.ale" not in body, (
-        "the epistemic and aleatoric terms are no longer charted")
+        "the network's epistemic and aleatoric terms are no longer charted")
+
+
+def test_tree_spread_outranks_the_model_free_lookup():
+    """The forest's own uncertainty beats the distance lookup, which is the
+    reverse of what the network managed and the reason the panel leads with it.
+    Both bundles come from the same scaffold split, so joining them by pdb id is
+    legitimate; if that ever stops being true this test fails on the join."""
+    forest = json.loads((BUNDLE.parent / "affinity.json").read_text())
+    network = json.loads(BUNDLE.read_text())
+    net_by = {c["id"]: c for c in network["complexes"]}
+
+    paired = [(f, net_by[f["id"]]) for f in forest["complexes"]
+              if f["id"] in net_by and net_by[f["id"]].get("ad_sim") is not None]
+    assert len(paired) == len(forest["complexes"]), (
+        "the two bundles have drifted onto different splits; the panel's join is "
+        "no longer sound")
+
+    err = [abs(f["pred"] - f["measured"]) for f, _ in paired]
+    spread = [f["spread"] for f, _ in paired]
+    dist = [1 - n["ad_sim"] for _, n in paired]
+
+    def rho(xs, ys):
+        def rank(a):
+            order = sorted(range(len(a)), key=lambda i: a[i])
+            out = [0.0] * len(a)
+            for pos, i in enumerate(order):
+                out[i] = pos
+            return out
+        rx, ry = rank(xs), rank(ys)
+        n = len(xs)
+        mx, my = sum(rx) / n, sum(ry) / n
+        cov = sum((rx[i] - mx) * (ry[i] - my) for i in range(n))
+        vx = math.sqrt(sum((v - mx) ** 2 for v in rx))
+        vy = math.sqrt(sum((v - my) ** 2 for v in ry))
+        return cov / (vx * vy)
+
+    spread_rho, dist_rho = rho(spread, err), rho(dist, err)
+    assert spread_rho > 0.15, f"tree spread ranks errors at only {spread_rho:.3f}"
+    assert dist_rho > 0, f"the distance lookup should point the right way, got {dist_rho:.3f}"
+    assert spread_rho > dist_rho, (
+        f"tree spread {spread_rho:.3f} no longer beats the lookup {dist_rho:.3f}; "
+        "the panel's ordering would be wrong")
 
 
 def test_viewer_draws_the_pocket_and_frames_it():

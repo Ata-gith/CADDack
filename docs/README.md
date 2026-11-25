@@ -192,12 +192,39 @@ ligands outside the domain average 1.38 pK of error against 1.18 for those insid
 Averaging their ranks beats either alone. It is still modest, and the better half
 of it needs no neural network.
 
-**What the page shows.** Only the applicability-domain split. The five-row chart
-that used to sit here invited readers to rank numbers that are not distinguishable
-— the middle three are within noise of each other, and the epistemic row is
-negative — so the page now shows the one signal that points the right way, as the
-mean error of the complexes inside and outside the domain. The prose above it says
-which terms were dropped and why.
+### The forest's tree spread is the warning signal that works
+
+Everything above is about the network. The forest is the shipped model, and it has
+an uncertainty estimate of its own that nobody had measured: the standard deviation
+across its 300 trees, which falls out of bagging without being trained. Five scaffold
+splits, 300 trees, the same features as the shipped model:
+
+| signal | ρ vs \|error\| | per-split range |
+|---|---|---|
+| spread across the 300 trees | **+0.207 ± 0.028** | +0.180 … +0.251 |
+| distance from training chemistry | +0.078 ± 0.019 | +0.051 … +0.100 |
+
+The tree spread is positive on every split, never close to crossing zero, and
+about 2.7× the model-free lookup. Treated as a standard deviation it covers 73% ±
+1% of measurements at ±1 and 97.5% ± 0.4% at ±2, against 68% and 95% ideal —
+slightly conservative, with nothing fitted to make it so. Complexes outside the
+applicability domain average 1.148 ± 0.024 pK of error against 1.054 ± 0.031
+inside, a smaller gap than the network's because the forest degrades more
+gracefully off its training chemistry.
+
+So the earlier conclusion — that the model-free lookup beats anything the model
+says about itself — holds **for the network only**. Given a model whose internal
+disagreement is driven by data rather than by injected noise, the model's own
+estimate wins comfortably. Bagged trees disagree most where they saw least; a
+Gaussian weight posterior does not, which is the whole difference.
+
+Reproduce with `scripts/rf_spread_signal.py`.
+
+**What the page shows.** The forest's two signals, ranked, plus the coverage and
+the in/out-of-domain split. The five-row chart that used to sit here invited
+readers to rank numbers that are not distinguishable. The network's epistemic
+failure is kept as a closing note under the chart, since it is the contrast that
+explains why the forest's version works.
 
 **How stable are these?** The uncertainty estimate is stochastic, so the
 comparison was repeated over eight independent Monte Carlo passes of the same

@@ -237,7 +237,7 @@ window.addEventListener("DOMContentLoaded", async () => {
   fillSummary();
   drawParity();
   drawHeadToHead();
-  drawNetworkUncertainty();
+  drawForestUncertainty();
   wireUpload();
   $("loading").hidden = true;
   $("app").hidden = false;
@@ -288,47 +288,55 @@ function spearman(xs, ys) {
 }
 
 
-function drawNetworkUncertainty() {
-  const rows = N.complexes.filter((r) => r.ad_sim !== null && r.ad_sim !== undefined);
+function drawForestUncertainty() {
+  // The forest is the shipped model, so this panel describes the forest. The
+  // tree spread rides in the forest bundle; the Tanimoto distance to training
+  // chemistry is only computed in the network's build, so it is joined across
+  // the two by pdb id. Both bundles are exported from the same scaffold split
+  // (seed 0), which is what makes that join legitimate -- when they drifted
+  // apart earlier they overlapped on 458 of 740 complexes and every comparison
+  // drawn from them was meaningless. Complexes missing from either side are
+  // dropped rather than guessed at.
+  const rows = F.complexes
+    .map((f) => ({ f, n: byId[f.id] && byId[f.id].network }))
+    .filter(({ f, n }) => n && n.ad_sim !== null && n.ad_sim !== undefined
+                            && typeof f.spread === "number");
   if (!rows.length) { $("uncertaintyPanel").hidden = true; return; }
 
-  const err = rows.map((r) => absErr(r.pred, r.measured));
-  const adDist = rows.map((r) => 1 - r.ad_sim);
+  const err = rows.map(({ f }) => absErr(f.pred, f.measured));
+  const spread = rows.map(({ f }) => f.spread);
+  const adDist = rows.map(({ n }) => 1 - n.ad_sim);
 
-  // Only the training-distance signal is shown. The epistemic, aleatoric and
-  // combined rows used to sit here too, but the epistemic one is negative across
-  // every seed and the other two are inside noise of each other, so the chart
-  // invited readers to rank five numbers that are not distinguishable. The prose
-  // above says what was dropped and why.
-  const adRho = spearman(adDist, err);
-  const t = N.ad ? N.ad.threshold : 0;
-  const outside = rows.filter((r) => r.ad_sim < t);
-  const inside = rows.filter((r) => r.ad_sim >= t);
-  const mae = (a) => a.reduce((s, r) => s + absErr(r.pred, r.measured), 0) / Math.max(a.length, 1);
-  const worst = Math.max(mae(outside), mae(inside)) || 1;
-
-  const band = (label, group, cls) => `
+  const signals = [
+    ["How much the 300 trees disagree", spearman(spread, err)],
+    ["Distance to the nearest training ligand", spearman(adDist, err)],
+  ];
+  const best = Math.max(...signals.map(([, v]) => Math.abs(v)));
+  $("signals").innerHTML = signals.map(([label, rho]) => `
     <div class="sigrow">
-      <span class="siglabel">${label}<br><small>${group.length} complexes</small></span>
-      <span class="sigbar"><i class="${cls}" style="width:${((mae(group) / worst) * 100).toFixed(0)}%"></i></span>
-      <span class="sigval">${mae(group).toFixed(2)} pK</span>
-    </div>`;
-  $("signals").innerHTML =
-    band("Nearest training ligand is similar", inside, "") +
-    band("Nothing similar in training", outside, "neg");
+      <span class="siglabel">${label}</span>
+      <span class="sigbar"><i class="${rho < 0 ? "neg" : ""}" style="width:${((Math.abs(rho) / best) * 100).toFixed(0)}%"></i></span>
+      <span class="sigval">${rho >= 0 ? "+" : ""}${rho.toFixed(2)}</span>
+    </div>`).join("");
 
-  const m = N.metrics;
+  const t = N.ad ? N.ad.threshold : 0;
+  const mae = (a) => a.reduce((s, { f }) => s + absErr(f.pred, f.measured), 0)
+                     / Math.max(a.length, 1);
+  const inside = rows.filter(({ n }) => n.ad_sim >= t);
+  const outside = rows.filter(({ n }) => n.ad_sim < t);
+  const cov1 = rows.filter(({ f }) => absErr(f.pred, f.measured) <= f.spread).length / rows.length;
+  const cov2 = rows.filter(({ f }) => absErr(f.pred, f.measured) <= 2 * f.spread).length / rows.length;
+
   $("uncertaintyVerdict").innerHTML =
-    `Complexes with no close training analogue are wrong by
-     ${(mae(outside) - mae(inside)).toFixed(2)} pK more on average. Ranking every
-     complex this way gives ρ&nbsp;=&nbsp;${adRho.toFixed(2)} against the errors
-     actually made — a real signal, and a weak one.
+    `Treating the spread as a standard deviation,
+     ${(cov1 * 100).toFixed(0)}% of measurements land inside ±1 spread and
+     ${(cov2 * 100).toFixed(0)}% inside ±2, against 68% and 95% for a normal
+     distribution. Close, and nothing was fitted to make it so — over five
+     scaffold splits it runs a little wide, at 73% and 97%.
      <br><br>
-     <strong>The error bars are the right width but the wrong shape.</strong>
-     ${(m.coverage_1sigma * 100).toFixed(0)}% of measurements land inside 1σ and
-     ${(m.coverage_2sigma * 100).toFixed(0)}% inside 2σ, against 68% and 95% ideal.
-     So the average spread is about right, while which particular predictions get
-     the wide bars is close to arbitrary.`;
+     The ${outside.length} complexes with no close training analogue are wrong by
+     ${mae(outside).toFixed(2)} pK on average against ${mae(inside).toFixed(2)} pK for
+     the other ${inside.length}. Worth knowing, and the weaker of the two warnings.`;
 }
 
 // --- scoring an uploaded pose ------------------------------------------------
