@@ -575,17 +575,28 @@ def test_both_readouts_build_and_run():
     from caddack.gnn.models import FusionAffinityNet
 
     for readout in ("sum", "interaction"):
+      for bayesian_towers in (False, True):
         model = FusionAffinityNet.build(
             ligand_in_channels=7, ligand_edge_dim=7, hidden_channels=32,
             num_gine_layers=1, num_geo_interactions=1, num_rbf=8, cutoff=6.0,
             geo_node_feat_dim=NEIGHBOR_FEAT_DIM, geo_readout=readout,
-            bayesian_hidden=[32])
+            bayesian_towers=bayesian_towers, bayesian_hidden=[32])
         lig = Batch.from_data_list([to_pyg_data(smiles_to_graph_arrays("CCO"), y=1.0)])
         geo = Data(z=torch.tensor([6, 7, 8, 6]), pos=torch.randn(4, 3))
         geo.nfeat = torch.rand(4, NEIGHBOR_FEAT_DIM)
         geo.is_ligand = torch.tensor([1., 1., 0., 0.])
         mu, log_var = model(lig, Batch.from_data_list([geo]))
-        assert torch.isfinite(mu).all() and torch.isfinite(log_var).all()
+        assert torch.isfinite(mu).all() and torch.isfinite(log_var).all(), (
+            f"readout={readout} bayesian_towers={bayesian_towers} gave non-finite output")
+        # The interaction readout pools cross-edges through pair_net and out_proj,
+        # which only the Bayesian build replaces; both paths have to carry gradients.
+        kl = model.kl()
+        assert torch.isfinite(kl) and kl > 0
+        (mu.sum() + kl).backward()
+        assert any(p.grad is not None and torch.isfinite(p.grad).all()
+                   for p in model.geo_tower.parameters()), (
+            f"readout={readout} bayesian_towers={bayesian_towers}: no gradient "
+            "reached the geometry tower")
 
 
 def test_geometry_tower_rejects_an_unknown_readout():
