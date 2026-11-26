@@ -476,12 +476,21 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
       Pocket atom count on its own accounts for R&sup2; 0.416. Whatever the 420,000 tower
       parameters compute, a handful of counts stands in for most of it.</dd>
 
-      <dt>It is not the features, and not only the data</dt>
+      <dt>It is not the features either</dt>
       <dd>Handed the same 113 structural features alongside its towers, the network reached
       <i>r</i> 0.626 against the forest's 0.696 on a matched split: closer, still behind. At
-      2,959 training complexes bagged trees on well-built features are hard to beat, but the
-      network also had to <em>discover</em> pairwise structure from those examples, while the
+      2,959 training complexes bagged trees on well-built features are hard to beat, and the
+      network also had to <em>discover</em> pairwise structure from those examples while the
       forest was handed it.</dd>
+
+      <dt>More data is not the missing piece</dt>
+      <dd>The obvious reply is that 2,959 complexes is simply too few. Training the forest on
+      3.7&times; as many — PDBbind's full general set, 10,802 complexes, with any ligand
+      sharing a scaffold with the test set removed — moved <i>r</i> by +0.005, inside the
+      noise. It did halve the number of test ligands with no close training analogue, so the
+      extra data buys reach rather than accuracy. That is measured on the forest, not the
+      network, so it does not settle the question for the network; it does show this dataset
+      is not obviously starved.</dd>
 
       <dt>Handing the pairs over directly is what worked</dt>
       <dd>The contact counts in the forest are exactly the information the sum throws away:

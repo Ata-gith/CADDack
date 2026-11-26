@@ -175,6 +175,50 @@ Tanimoto 0.231 against a 0.321 threshold). That page would print a confident
 solubility number for five ligands in six with no basis for one. What combines
 is the representation, not the predictions.
 
+### Enlarging the training set: coverage, not accuracy
+
+PDBbind ships a quality-filtered *refined* set of 3,699 complexes and a *general*
+set of 11,838. The shipped model trains on the refined 2,959; adding the general
+set takes that to 10,802, a 3.7x increase. The test set is held at the refined
+scaffold split so the numbers stay comparable, and any general complex sharing a
+Bemis-Murcko scaffold with a test ligand is dropped first — without that filter
+the extra data leaks the answer. Five splits:
+
+| | Pearson *r* | MAE |
+|---|---|---|
+| refined only (2,959) | 0.704 ± 0.019 | 1.057 ± 0.024 |
+| refined + general (10,802) | 0.709 ± 0.014 | 1.049 ± 0.021 |
+
+**Aggregate accuracy barely moves**: +0.005 in *r* (4/5 splits, *p* = 0.17) and
+−0.008 MAE (4/5, *p* = 0.066). Neither clears significance. For scale, the 1,024
+fingerprint columns bought +0.019 at *p* = 0.006 on these same splits — **the
+extra 7,800 complexes bought less than the extra features did.**
+
+What the data does buy is **reach**. Grouping the test set by the baseline
+model's applicability domain, so both arms are scored on the same molecules:
+
+| | refined only | + general | |
+|---|---|---|---|
+| in-domain MAE (≈556 complexes) | 1.026 | 1.021 | 4/5, *p* = 0.29 |
+| **out-of-domain MAE (≈184)** | 1.150 | **1.132** | **5/5, *p* = 0.027** |
+| test ligands outside the domain | 184 | **85** | of 740 |
+| mean nearest-training similarity | 0.463 | 0.532 | |
+
+The extra data helps exactly where it should — on the hardest quarter of the test
+set, improving on every split — but by 0.017 pK, which is why the aggregate stays
+flat. The large effect is coverage: **more than half the complexes that had no
+close training analogue now have one.** On a page whose warning signal is "nothing
+similar in training", halving that group is the real change, and it is a count
+rather than a marginal *p*-value.
+
+A caveat on provenance: general-set affinities come from more varied assays and
+lower-resolution structures than the refined set, so this trades measurement
+quality for chemical breadth. The test set stays refined-only throughout, so the
+evaluation is unaffected, but a model trained this way is trained on noisier
+labels.
+
+Reproduce with `scripts/dataset_size.py`.
+
 ### Given the same features, the forest still wins
 
 The obvious objection to the table above is that it compares a forest with good
