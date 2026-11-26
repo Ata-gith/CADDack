@@ -330,3 +330,37 @@ def test_missing_smiles_is_refused_when_the_model_needs_one():
     guard = body[body.index("const approximate"):]
     assert "return show(" in guard, (
         "with a fingerprint model and no SMILES the page must stop, not guess")
+
+
+def test_both_models_have_a_schematic_and_the_counts_add_up():
+    """Each schematic's input boxes must total the vector width it then claims.
+    The forest's fingerprint box was missing after the 113 -> 1137 change, so the
+    boxes summed to 113 above a box reading 1,137."""
+    html = (BUNDLE.parent / "fusion.html").read_text()
+    assert html.count('class="schematic"') == 2, (
+        "one schematic for the forest, one for the network")
+
+    forest = html[html.index("one vector of 1,137 numbers") - 4000:]
+    forest = forest[:forest.index("</svg>")]
+    for box in ("6 descriptors", "1 size count", "6 Vina terms",
+                "100 contact counts", "1024 fingerprint bits"):
+        assert box in forest, f"the forest schematic is missing its {box!r} box"
+    assert 6 + 1 + 6 + 100 + 1024 == 1137
+
+
+def test_network_schematic_marks_where_it_fails():
+    """The panel exists to explain a failure, so the schematic has to show it.
+    The pooling step is the failure: summing over atoms discards which atom
+    faced which, and that is the whole argument."""
+    html = (BUNDLE.parent / "fusion.html").read_text()
+    net = html[html.index("<h2>Network prediction</h2>"):]
+    net = net[:net.index("</section>")]
+
+    assert 'class="box fail"' in net, (
+        "the pooling step must be marked as the failure, not drawn as a normal box")
+    assert "add their atoms together" in net
+    assert "not which ligand atom was facing which pocket atom" in net
+    assert "Why it fails" in net, "the panel must say plainly why it fails"
+    # The claims the explanation rests on, each measured and recorded in README.
+    for claim in ("0.589", "0.416", "0.626", "0.696"):
+        assert claim in net, f"the failure argument cites {claim} and must keep it"

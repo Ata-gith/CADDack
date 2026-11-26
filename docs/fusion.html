@@ -111,6 +111,15 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 .schematic .box.enc{stroke:color-mix(in srgb,var(--accent) 55%,transparent)}
 .schematic .box.head{stroke:var(--accent);stroke-width:1.6}
 .schematic .box.vec{fill:var(--bg)}
+.schematic .box.fail{stroke:var(--bad);stroke-width:1.6;
+  fill:color-mix(in srgb,var(--bad) 8%,var(--panel))}
+.schematic .f{fill:var(--bad);font-size:12.5px;font-weight:650;text-anchor:middle;
+  font-family:ui-sans-serif,system-ui,sans-serif}
+.schematic .fs{fill:var(--bad);font-size:11px;text-anchor:middle;
+  font-family:ui-sans-serif,system-ui,sans-serif}
+.schematic .fl{fill:var(--bad);font-size:11px;text-anchor:start;
+  font-family:ui-sans-serif,system-ui,sans-serif}
+.schematic .arrow path.cut{stroke:var(--bad);stroke-width:1.4;opacity:1}
 .schematic .t{fill:var(--ink);font-size:13px;font-weight:600;text-anchor:middle;
   font-family:ui-sans-serif,system-ui,sans-serif}
 .schematic .s{fill:var(--muted);font-size:11px;text-anchor:middle;
@@ -118,6 +127,7 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 .schematic .out{fill:var(--accent);font-size:12.5px;font-weight:600;text-anchor:middle;
   font-family:ui-sans-serif,system-ui,sans-serif}
 .schematic .arrow path{stroke:var(--muted);stroke-width:1.3;fill:none;opacity:.75}
+.sub-h{margin:26px 0 0;font-size:1.02rem;font-weight:650}
 .defs{margin:14px 0 0;max-width:72ch}
 .defs dt{font-weight:650;margin-top:16px;font-size:.95rem}
 .defs dt:first-child{margin-top:0}
@@ -171,7 +181,7 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
     are averaged.</p>
 
     <div class="schematic">
-      <svg viewBox="0 0 760 290" role="img"
+      <svg viewBox="0 0 760 340" role="img"
            aria-label="Features computed from the complex feed a random forest">
         <rect class="box in" x="18" y="18" width="168" height="58" rx="8"/>
         <text class="t" x="102" y="40">6 descriptors</text>
@@ -189,19 +199,24 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
         <text class="t" x="650" y="40">100 contact counts</text>
         <text class="s" x="650" y="60">by element pair and distance</text>
 
-        <rect class="box vec" x="240" y="118" width="280" height="36" rx="6"/>
-        <text class="t" x="380" y="141">one vector of 1,137 numbers</text>
+        <rect class="box in" x="286" y="96" width="188" height="48" rx="8"/>
+        <text class="t" x="380" y="116">1024 fingerprint bits</text>
+        <text class="s" x="380" y="134">which fragments the ligand has</text>
 
-        <rect class="box head" x="200" y="186" width="360" height="54" rx="8"/>
-        <text class="t" x="380" y="208">300 decision trees, averaged</text>
-        <text class="s" x="380" y="227">each trained on a resample of the data</text>
+        <rect class="box vec" x="240" y="176" width="280" height="36" rx="6"/>
+        <text class="t" x="380" y="199">one vector of 1,137 numbers</text>
+
+        <rect class="box head" x="200" y="244" width="360" height="54" rx="8"/>
+        <text class="t" x="380" y="266">300 decision trees, averaged</text>
+        <text class="s" x="380" y="285">each trained on a resample of the data</text>
 
         <g class="arrow">
-          <path d="M102 76 V100 H380 V118"/><path d="M279 76 V100 H380 V118"/>
-          <path d="M456 76 V100 H380 V118"/><path d="M650 76 V100 H380 V118"/>
-          <path d="M380 154 V186"/>
+          <path d="M102 76 V86 H250 V176"/><path d="M279 76 V86 H250 V176"/>
+          <path d="M456 76 V86 H510 V176"/><path d="M650 76 V86 H510 V176"/>
+          <path d="M380 144 V176"/>
+          <path d="M380 212 V244"/>
         </g>
-        <text class="out" x="380" y="256">→ predicted pK, and the spread across trees</text>
+        <text class="out" x="380" y="318">→ predicted pK, and the spread across trees</text>
       </svg>
     </div>
 
@@ -357,7 +372,51 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
   <section class="panel">
     <h2>Network prediction</h2>
     <p class="body">A neural network was trained on the same complexes and the same split.
-    It is kept here because it fails in an instructive way.</p>
+    It is kept here because it fails in an instructive way, marked in red below.</p>
+
+    <div class="schematic">
+      <svg viewBox="0 0 760 476" role="img"
+           aria-label="Two encoders read the complex, sum over their atoms, and a
+                       Bayesian head turns the result into a predicted affinity">
+        <rect class="box in" x="48" y="16" width="290" height="58" rx="8"/>
+        <text class="t" x="193" y="39">the ligand as a graph</text>
+        <text class="s" x="193" y="58">atoms and bonds, no coordinates</text>
+
+        <rect class="box in" x="422" y="16" width="290" height="58" rx="8"/>
+        <text class="t" x="567" y="39">ligand and pocket in 3D</text>
+        <text class="s" x="567" y="58">every atom pair closer than 6 &#197;</text>
+
+        <rect class="box enc" x="48" y="110" width="290" height="62" rx="8"/>
+        <text class="t" x="193" y="134">ligand tower</text>
+        <text class="s" x="193" y="153">3 rounds of passing messages along bonds</text>
+
+        <rect class="box enc" x="422" y="110" width="290" height="62" rx="8"/>
+        <text class="t" x="567" y="134">geometry tower</text>
+        <text class="s" x="567" y="153">2 rounds, each message scaled by distance</text>
+
+        <rect class="box fail" x="48" y="208" width="664" height="78" rx="8"/>
+        <text class="f" x="380" y="234">both towers add their atoms together</text>
+        <text class="fs" x="380" y="255">the total records how many atoms there are and of what kind,</text>
+        <text class="fs" x="380" y="272">not which ligand atom was facing which pocket atom</text>
+
+        <rect class="box vec" x="288" y="318" width="184" height="34" rx="6"/>
+        <text class="t" x="380" y="340">128 + 128 numbers</text>
+
+        <rect class="box head" x="200" y="384" width="360" height="58" rx="8"/>
+        <text class="t" x="380" y="407">Bayesian head</text>
+        <text class="s" x="380" y="426">197,000 weights drawn fresh on each of 30 samples</text>
+
+        <g class="arrow">
+          <path d="M193 74 V110"/>
+          <path d="M567 74 V110"/>
+          <path class="cut" d="M193 172 V208"/>
+          <path class="cut" d="M567 172 V208"/>
+          <path d="M380 286 V318"/>
+          <path d="M380 352 V384"/>
+        </g>
+        <text class="out" x="380" y="464">→ predicted pK, and a spread that does not track the error</text>
+      </svg>
+    </div>
 
     <dl class="defs">
       <dt>Tower</dt>
@@ -399,17 +458,37 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
     </div>
     <p class="body" id="h2hVerdict" style="margin-top:16px"></p>
 
-    <dl class="defs" style="margin-top:18px">
-      <dt>The gap is in the features, not the model class</dt>
-      <dd>The network was then given the same 113 structural features alongside its towers. It reached
-      <i>r</i> 0.626 against the forest's 0.696 on a matched split: closer, still behind.
-      The 420,000 parameters in the two towers add nothing the features do not already
-      supply.</dd>
+    <h3 class="sub-h">Why it fails</h3>
+    <p class="body">Binding is a property of <em>pairs</em>: which ligand atom faces which
+    pocket atom, and how far apart. The geometry tower is the only part that sees both
+    molecules, and it does learn a vector for each atom describing that atom's
+    surroundings. Then it adds the vectors up.</p>
 
-      <dt>2,959 training complexes is a small dataset</dt>
-      <dd>Bagged trees on well-built features are hard to beat at that size. A network this
-      large needs either far more data or features that cannot be written down by hand, and
-      every gain measured here came from features that could.</dd>
+    <p class="body">Addition forgets who was next to whom. After the sum, a carbon sitting
+    3&nbsp;&#197; from a backbone oxygen and a carbon sitting 7&nbsp;&#197; from nothing are
+    both just carbons in the total. What survives is close to a count of atoms by type,
+    which is why a model given nothing but counts matches this one.</p>
+
+    <dl class="defs">
+      <dt>The towers are reproducible by nine trivial numbers</dt>
+      <dd>A random forest on nine scalars — molecular weight, atom counts and the like, none
+      of which describe the interface — reaches <i>r</i> 0.589 against the network's 0.644.
+      Pocket atom count on its own accounts for R&sup2; 0.416. Whatever the 420,000 tower
+      parameters compute, a handful of counts stands in for most of it.</dd>
+
+      <dt>It is not the features, and not only the data</dt>
+      <dd>Handed the same 113 structural features alongside its towers, the network reached
+      <i>r</i> 0.626 against the forest's 0.696 on a matched split: closer, still behind. At
+      2,959 training complexes bagged trees on well-built features are hard to beat, but the
+      network also had to <em>discover</em> pairwise structure from those examples, while the
+      forest was handed it.</dd>
+
+      <dt>Handing the pairs over directly is what worked</dt>
+      <dd>The contact counts in the forest are exactly the information the sum throws away:
+      every ligand–protein atom pair, sorted by element pair and separation. Adding them
+      lifted <i>r</i> from 0.636 to 0.696, the largest single effect measured here. The
+      lesson is not that networks cannot do this — it is that pooling has to preserve what
+      the problem is about.</dd>
 
       <dt>The forest also runs in a browser</dt>
       <dd>Trees serialise and can be walked in JavaScript, which is how the panel above
