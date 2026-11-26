@@ -40,7 +40,8 @@ from caddack.affinity.features import (  # noqa: E402
     features_from_atoms,
     features_from_files,
 )
-from caddack.qsar.split import scaffold_split  # noqa: E402
+from caddack.qsar import canonicalize_smiles  # noqa: E402
+from caddack.qsar.split import murcko_scaffold, scaffold_split  # noqa: E402
 
 CACHE_NAME = "pdbbind_examples.pkl"
 
@@ -112,13 +113,45 @@ def build_matrix(examples, cache: Path | None, data_dir: Path, from_raw: bool,
     return X, y, ids, smiles, mask
 
 
-def evaluate(X, y, smiles, all_smiles, mask, args) -> tuple[dict, dict]:
-    """Repeated scaffold splits. Returns summary stats and the last fold's detail.
+def _scaffold_key(smi: str):
+    """Murcko scaffold, or the canonical SMILES when the ligand has no rings.
+
+    murcko_scaffold returns None for acyclic molecules. Lumping those under a
+    single key would drop every acyclic augmentation complex the moment one
+    acyclic ligand landed in the test set.
+    """
+    if not smi:
+        return None
+    sc = murcko_scaffold(smi)
+    return sc if sc else (canonicalize_smiles(smi) or smi)
+
+
+def augmentation_rows(extra_pool, test_rows, smiles):
+    """Rows from ``extra_pool`` that are safe to add to training for this split.
+
+    Any complex whose ligand shares a Bemis-Murcko scaffold with a test ligand is
+    dropped. Without that filter the extra data leaks: the general set contains
+    close analogues of refined complexes, so adding it unfiltered scores the
+    model on chemistry it has effectively already seen.
+    """
+    test_keys = {_scaffold_key(smiles[r]) for r in test_rows} - {None}
+    keep = [r for r in extra_pool
+            if (k := _scaffold_key(smiles[r])) is not None and k not in test_keys]
+    return np.array(keep, dtype=int), len(extra_pool) - len(keep)
+
+
+def evaluate(X, y, smiles, all_smiles, mask, args, extra_pool=None) -> tuple[dict, dict]:
+    """Repeated scaffold splits. Returns summary stats and the base fold's detail.
 
     The split runs over every complex in the dataset, then is restricted to the
     ones that featurised. Splitting a pre-filtered list instead would put these
     models on a different test set from the graph models, which are split the
     same way.
+
+    ``extra_pool`` holds rows that may join *training* only -- the general-set
+    complexes under --augment-general. The test set stays whatever the split
+    produced from ``all_smiles``, so the numbers stay comparable with every other
+    model measured here.
     """
     position = np.cumsum(mask) - 1          # dataset index -> row in X
     per_fold, detail = [], {}
@@ -129,6 +162,11 @@ def evaluate(X, y, smiles, all_smiles, mask, args) -> tuple[dict, dict]:
                                         test_size=args.test_size, seed=seed)
         tr = position[[i for i in tr_all if mask[i]]]
         te = position[[i for i in te_all if mask[i]]]
+        if extra_pool is not None and len(extra_pool):
+            extra, dropped = augmentation_rows(extra_pool, te, smiles)
+            print(f"    split {seed}: +{len(extra)} general complexes for training "
+                  f"({dropped} dropped for scaffold overlap with test)")
+            tr = np.concatenate([tr, extra])
         rf = RandomForestRegressor(n_estimators=args.n_estimators,
                                    max_depth=args.max_depth,
                                    min_samples_leaf=args.min_samples_leaf,
@@ -212,25 +250,63 @@ def main(argv=None) -> int:
     ap.add_argument("--test-size", type=float, default=0.2)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--general", action="store_true",
-                    help="train on the full general set rather than the refined subset")
+                    help="train AND test on the full general set rather than the "
+                         "refined subset")
+    ap.add_argument("--augment-general", action="store_true",
+                    help="keep the refined scaffold split for the test set, but add "
+                         "the general-set complexes to TRAINING, after removing any "
+                         "that share a scaffold with the test set. Takes training "
+                         "from 2,959 to about 10,800: aggregate accuracy barely "
+                         "moves, but test ligands with no close training analogue "
+                         "fall from 184 to 85 of 740.")
     ap.add_argument("--no-cache", action="store_true")
     args = ap.parse_args(argv)
 
     with open(args.data_dir / CACHE_NAME, "rb") as fh:
         examples = pickle.load(fh)
-    if not args.general:
+    if args.general and args.augment_general:
+        raise SystemExit("--general and --augment-general are mutually exclusive: "
+                         "the first moves the test set, the second does not.")
+    if not (args.general or args.augment_general):
         examples = [e for e in examples if getattr(e, "is_refined", True)]
-    print(f"  {len(examples)} complexes"
-          f"{'' if args.general else ' (refined set)'}")
 
-    tag = ("general" if args.general else "refined") + ("_raw" if args.from_raw else "")
+    n_refined = len(examples)
+    if args.augment_general:
+        # Refined complexes first, so a scaffold split over the refined prefix
+        # reproduces the refined-only split exactly and the test set is unchanged.
+        # The cache is tagged separately because it is keyed by filename alone:
+        # reusing the general cache, which was written in the original order,
+        # would silently pair every row with the wrong complex.
+        refined = [e for e in examples if getattr(e, "is_refined", True)]
+        general = [e for e in examples if not getattr(e, "is_refined", True)]
+        examples = refined + general
+        n_refined = len(refined)
+        print(f"  {len(examples)} complexes: {n_refined} refined (split as usual) "
+              f"+ {len(general)} general (training only)")
+    else:
+        print(f"  {len(examples)} complexes"
+              f"{'' if args.general else ' (refined set)'}")
+
+    tag = ("general_aug" if args.augment_general
+           else "general" if args.general else "refined")
+    tag += "_raw" if args.from_raw else ""
     cache = None if args.no_cache else args.data_dir / f"affinity_features_{tag}.npz"
     X, y, ids, smiles, mask = build_matrix(examples, cache, args.data_dir,
                                            args.from_raw, args.fingerprint_bits)
     all_smiles = [e.ligand_smiles or "" for e in examples]
+    extra_pool = None
+    if args.augment_general:
+        # Split over the refined prefix only; the general tail joins training.
+        # Rows are in example order, so the refined rows are the first
+        # mask[:n_refined].sum() of them.
+        n_valid_refined = int(mask[:n_refined].sum())
+        extra_pool = np.arange(n_valid_refined, int(mask.sum()))
+        all_smiles = all_smiles[:n_refined]
+        mask = mask[:n_refined]
+        assert len(all_smiles) == len(mask) == n_refined
 
     print(f"  evaluating over {args.n_repeats} scaffold splits")
-    summary, detail = evaluate(X, y, smiles, all_smiles, mask, args)
+    summary, detail = evaluate(X, y, smiles, all_smiles, mask, args, extra_pool)
     print("  summary: " + "  ".join(
         f"{k} {v['mean']:+.3f}±{v['sd']:.3f}" for k, v in summary.items()
         if isinstance(v, dict)))
@@ -250,7 +326,9 @@ def main(argv=None) -> int:
         "fingerprint_bits": args.fingerprint_bits,
         "metrics": summary,
         "n_training_complexes": int(len(y)),
-        "dataset": "PDBbind v2015 " + ("general" if args.general else "refined"),
+        "dataset": ("PDBbind v2015 refined, trained with the general set"
+                    if args.augment_general else
+                    "PDBbind v2015 " + ("general" if args.general else "refined")),
         "target": "-log Kd/Ki (pK units)",
     }, indent=2), encoding="utf-8")
     print(f"  wrote {args.outdir}/")
@@ -263,14 +341,30 @@ def main(argv=None) -> int:
                                  min_samples_leaf=args.demo_min_samples_leaf,
                                  random_state=args.seed, n_jobs=-1)
     demo.fit(X[tr], y[tr])
-    per_tree = np.stack([t.predict(X[te]) for t in demo.estimators_])
-    pred, spread = per_tree.mean(0), per_tree.std(0, ddof=0)
+    demo_per_tree = np.stack([t.predict(X[te]) for t in demo.estimators_])
+    demo_pred, demo_spread = demo_per_tree.mean(0), demo_per_tree.std(0, ddof=0)
     demo_metrics = {
-        "pearson": float(pearsonr(pred, y[te]).statistic),
-        "r2": float(1 - np.sum((pred - y[te]) ** 2) / np.sum((y[te] - y[te].mean()) ** 2)),
-        "mae": float(np.mean(np.abs(pred - y[te]))),
+        "pearson": float(pearsonr(demo_pred, y[te]).statistic),
+        "r2": float(1 - np.sum((demo_pred - y[te]) ** 2)
+                    / np.sum((y[te] - y[te].mean()) ** 2)),
+        "mae": float(np.mean(np.abs(demo_pred - y[te]))),
         "n_trees": args.demo_n_estimators, "max_depth": args.demo_max_depth,
+        "min_samples_leaf": args.demo_min_samples_leaf,
+        "coverage_1sd": float(np.mean(np.abs(demo_pred - y[te]) <= demo_spread)),
+        "coverage_2sd": float(np.mean(np.abs(demo_pred - y[te]) <= 2 * demo_spread)),
     }
+
+    # The per-complex predictions shipped to the page come from the FULL forest,
+    # the one whose metrics the page quotes -- not from the capped browser copy.
+    # Depth caps make the browser copy's trees agree with one another far more
+    # than the full forest's do, so its spread is too narrow to read as a
+    # standard deviation: 53% of measurements inside +-1 at depth 14 against 74%
+    # unconstrained. Shipping the capped copy's spread would have put a number on
+    # the uncertainty panel that describes neither the quoted model nor a
+    # calibrated interval.
+    full = detail["model"]
+    per_tree = np.stack([t.predict(X[te]) for t in full.estimators_])
+    pred, spread = per_tree.mean(0), per_tree.std(0, ddof=0)
     print(f"  browser copy ({args.demo_n_estimators} trees, depth "
           f"{args.demo_max_depth}): r {demo_metrics['pearson']:+.3f}  "
           f"MAE {demo_metrics['mae']:.3f}")
@@ -280,7 +374,12 @@ def main(argv=None) -> int:
         "fingerprint_bits": args.fingerprint_bits,
         "metrics": summary,
         "demo_metrics": demo_metrics,
-        "dataset": "PDBbind v2015 " + ("general" if args.general else "refined"),
+        "complex_source": ("full forest, "
+                           f"{args.n_estimators} trees, seed {args.seed}"),
+        "dataset": ("PDBbind v2015 refined, trained with the general set"
+                    if args.augment_general else
+                    "PDBbind v2015 " + ("general" if args.general else "refined")),
+        "n_train": int(len(tr)),
         "complexes": [{"id": ids[i], "measured": round(float(y[i]), 3),
                        "pred": round(float(p), 3), "spread": round(float(s), 3)}
                       for i, p, s in zip(te, pred, spread)],

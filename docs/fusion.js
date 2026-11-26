@@ -332,7 +332,10 @@ function drawForestUncertainty() {
      ${(cov1 * 100).toFixed(0)}% of measurements land inside ±1 spread and
      ${(cov2 * 100).toFixed(0)}% inside ±2, against 68% and 95% for a normal
      distribution. Close, and nothing was fitted to make it so — over five
-     scaffold splits it runs a little wide, at 73% and 97%.
+     scaffold splits it runs a little wide, at 73% and 97%. These describe the
+     full forest, the one the numbers above come from; the smaller copy that runs
+     in your browser has trees that agree with each other more, so the spread it
+     reports for an uploaded pose is narrower.
      <br><br>
      The ${outside.length} complexes with no close training analogue are wrong by
      ${mae(outside).toFixed(2)} pK on average against ${mae(inside).toFixed(2)} pK for

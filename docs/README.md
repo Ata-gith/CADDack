@@ -217,7 +217,29 @@ quality for chemical breadth. The test set stays refined-only throughout, so the
 evaluation is unaffected, but a model trained this way is trained on noisier
 labels.
 
-Reproduce with `scripts/dataset_size.py`.
+**This is what ships**, via `--augment-general`: *r* 0.718 ± 0.010, MAE 1.040 ±
+0.005 over three splits, trained on 10,805 complexes.
+
+Two things had to change to ship it, both caught by measurement rather than
+assumed:
+
+*The browser copy got smaller, not bigger.* 3.7× the data makes unconstrained
+trees much larger — the bundle went to 4.97 MB at the old 100-tree/depth-18
+setting. Sweeping the cap found 80 trees at depth 14, leaf 8: **1.75 MB, below
+the 1.82 MB it replaces, at *r* 0.698 against the old copy's 0.694.** More data
+bought a smaller, slightly better browser model.
+
+*The per-complex predictions now come from the full forest, not the browser
+copy.* Depth caps make the capped trees agree with each other far more than the
+full forest's do, so the capped copy's spread is too narrow to read as a standard
+deviation — 53% of measurements inside ±1 at depth 14, against 74% unconstrained.
+Since the page quotes the full forest's metrics, the uncertainty panel now
+describes the full forest too: ρ(spread, error) +0.219, coverage 74% and 96%. The
+browser copy's own calibration is recorded in `demo_metrics` and the upload panel
+says its spread runs narrower.
+
+Reproduce with `scripts/dataset_size.py`; retrain with
+`python scripts/train_affinity_rf.py --data-dir ... --augment-general`.
 
 ### Given the same features, the forest still wins
 

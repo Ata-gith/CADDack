@@ -133,6 +133,7 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 .defs dt:first-child{margin-top:0}
 .defs dd{margin:5px 0 0;font-size:.92rem;line-height:1.65;color:var(--muted)}
 .defs .unit{font-weight:400;color:var(--muted);font-size:.82rem;margin-left:6px}
+.note-narrow{color:var(--muted);font-size:.84rem}
 .metrics dt{font-variant-numeric:tabular-nums}
 .statline{display:flex;gap:22px;flex-wrap:wrap;font-size:.86rem;color:var(--muted);margin-top:14px}
 .statline b{color:var(--ink);font-variant-numeric:tabular-nums}
@@ -355,7 +356,8 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
       <div class="dockout">
         <div>
           <div class="big"><span id="dockPred">—</span> <span class="unit">pK</span></div>
-          <p class="meta">± <span id="dockSpread">—</span> across the trees</p>
+          <p class="meta">± <span id="dockSpread">—</span> across the trees,
+          <span class="note-narrow">narrower than the full forest's</span></p>
           <p class="body" id="dockPlain" style="margin-top:8px"></p>
         </div>
         <dl class="kv">
@@ -485,12 +487,12 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
       <dt>More data is not the missing piece</dt>
       <dd>The obvious reply is that 2,959 complexes is simply too few. Training the forest on
-      3.7&times; as many — PDBbind's full general set, 10,802 complexes, with any ligand
-      sharing a scaffold with the test set removed — moved <i>r</i> by +0.005, inside the
-      noise. It did halve the number of test ligands with no close training analogue, so the
-      extra data buys reach rather than accuracy. That is measured on the forest, not the
-      network, so it does not settle the question for the network; it does show this dataset
-      is not obviously starved.</dd>
+      3.7&times; as many — PDBbind's general set on top, with any ligand sharing a scaffold
+      with the test set removed — moved <i>r</i> by +0.005 over five splits, inside the
+      noise. It did more than halve the test ligands with no close training analogue, so the
+      extra data buys reach rather than accuracy. The forest above ships trained that way.
+      This is measured on the forest, not the network, so it does not settle the question
+      for the network; it does show the dataset is not obviously starved.</dd>
 
       <dt>Handing the pairs over directly is what worked</dt>
       <dd>The contact counts in the forest are exactly the information the sum throws away:
@@ -563,10 +565,19 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
 
   <footer class="panel">
     <h2>Data and caveats</h2>
-    <p class="body">PDBbind v2015 refined set: 3,699 complexes with crystal structures and
-    measured affinities. The split holds out whole Bemis–Murcko scaffolds — a molecule's
-    ring skeleton — so test ligands are structurally new, not close relatives of training
-    ones. Harder than a random split, and the numbers are lower for it.</p>
+    <p class="body">PDBbind v2015: crystal structures with measured affinities. The
+    held-out 740 complexes come from the quality-filtered <em>refined</em> set of 3,699,
+    split on whole Bemis–Murcko scaffolds — a molecule's ring skeleton — so test ligands
+    are structurally new, not close relatives of training ones. Harder than a random split,
+    and the numbers are lower for it.</p>
+
+    <p class="body">Training adds PDBbind's larger <em>general</em> set on top, taking it
+    from 2,959 complexes to 10,805, after dropping any general ligand sharing a scaffold
+    with the test set. That barely moves accuracy — <i>r</i> +0.005 over five splits, inside
+    the noise — but it more than halves the test ligands with no close training analogue,
+    from 184 to 85. General-set affinities come from more varied assays and lower-resolution
+    structures, so this trades label quality for chemical breadth. The test set stays
+    refined-only, so the evaluation above is unaffected.</p>
 
     <p class="body">Three caveats. Affinity benchmarks on PDBbind
     <a href="https://www.nature.com/articles/s42256-025-01124-5">overlap heavily between
