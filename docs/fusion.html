@@ -583,8 +583,10 @@ svg .bar.err{fill:var(--bad)} svg .bar.unc{fill:color-mix(in srgb,var(--accent) 
     <a href="https://www.nature.com/articles/s42256-025-01124-5">overlap heavily between
     train and test</a>, which inflates published results; the scaffold split reduces that
     without eliminating it. Scaffold splitting separates ligands but not proteins, so the
-    same pocket can appear on both sides. And the features stop at 8 Å, so the wider
-    protein is never seen.</p>
+    same pocket can appear on both sides — holding out whole proteins as well costs
+    <b>0.03 in <i>r</i></b>, measured against a control that drops the same amount of
+    training data at random, so the numbers here are optimistic by about that much. And
+    the features stop at 8 Å, so the wider protein is never seen.</p>
 
     <p class="body">Rebuild with <code>scripts/build_fusion_demo.py</code>. Full
     mathematics in <a href="elbo_math.pdf">elbo_math.pdf</a> and

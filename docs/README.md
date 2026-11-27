@@ -241,6 +241,79 @@ says its spread runs narrower.
 Reproduce with `scripts/dataset_size.py`; retrain with
 `python scripts/train_affinity_rf.py --data-dir ... --augment-general`.
 
+### Protein-level leakage, finally measured
+
+Scaffold splitting separates ligands but not proteins, so the same pocket can sit
+on both sides of the split. This was flagged as a caveat for a long time without
+a number attached. An earlier attempt to quantify it compared pocket *element
+composition* and found 21% of test pockets above 0.99 cosine to a training
+pocket — but a random-pair control gave 13% with a four-times-smaller pool, so
+composition was too blunt to separate real redundancy from chance.
+
+**Identifying proteins without UniProt.** PDBbind ships no name index here and the
+container cannot reach RCSB, so identity has to come from the structures. A pocket
+PDB lists the residues lining the site with their author numbering; two structures
+of the same protein share those residues by *name and number*, which 60-residue
+pockets cannot match by chance. Random pairs have median Jaccard 0.009 and only
+0.39% exceed 0.5, 0.01% exceed 0.7. Single-linkage clustering above that gives
+protein groups needing no external labels. (A first positive control was invalid:
+the `*gs` PDB codes are not one protein family, the suffix is coincidental, so
+that run tested nothing.)
+
+**The measurement.** Enforcing disjointness also removes training rows, and less
+data alone lowers the score, so a same-size random-drop control runs alongside.
+Five splits, 1,137 features, threshold 0.5:
+
+| split | Pearson *r* | MAE |
+|---|---|---|
+| scaffold (as shipped) | 0.704 ± 0.019 | 1.057 ± 0.024 |
+| protein groups only | 0.709 ± 0.022 | 1.120 ± 0.041 |
+| both disjoint | 0.665 ± 0.029 | 1.188 ± 0.047 |
+| control: same training size, random drop | 0.696 ± 0.024 | 1.148 ± 0.042 |
+
+**Leakage, net of the data it costs to remove: −0.031 ± 0.009 in *r*, *p* =
+0.001.** At threshold 0.7 it is −0.035 ± 0.014, *p* = 0.005 — the same answer
+from an independent threshold.
+
+Two things worth noting. A protein split *on its own* scores **higher** than the
+scaffold split (+0.035, *p* = 0.039), because it leaves ligand scaffolds
+uncontrolled and test ligands can be close analogues of training ones: it is a
+weaker test, not a stricter one. And the headline drop from scaffold to
+both-disjoint, −0.039, is mostly the lost training data; only −0.031 of it is
+leakage.
+
+So: the caveat is real and worth about 0.03 in *r*, roughly 4% relative. It does
+not overturn anything here — the scaffold split was already doing most of the
+work — but the shipped numbers are optimistic by about that much.
+
+Reproduce with `scripts/protein_split.py [threshold]`.
+
+### What a pocket-to-ligand generator has to beat
+
+Before building anything generative, the trivial answer: given a pocket, retrieve
+the most similar training pocket and propose *its* ligand. No generation, no
+model. Scored by ECFP4 Tanimoto to the true ligand, on a protein-disjoint split —
+on a random split the nearest training pocket is often the same protein and
+retrieval flatters itself:
+
+| | Tanimoto to the true ligand |
+|---|---|
+| nearest training pocket's ligand | **0.228 ± 0.012** |
+| random training ligand | 0.107 ± 0.002 |
+| best ligand anywhere in training | 0.618 ± 0.042 *(retrieval ceiling)* |
+
+Pocket similarity carries real signal — twice random — but captures only about a
+quarter of the achievable range, and just 14% of retrievals clear Tanimoto 0.4.
+That is the bar.
+
+A caveat on the metric itself: similarity to the one ligand that happens to be in
+the crystal structure is a weak measure of a generator. A different, equally good
+binder scores badly on it. A serious evaluation needs a physics score on the
+generated pose as well — `caddack.docking.scoring` already provides Vina terms,
+which are independent of anything learned here.
+
+Reproduce with `scripts/pocket_retrieval_baseline.py`.
+
 ### Given the same features, the forest still wins
 
 The obvious objection to the table above is that it compares a forest with good
